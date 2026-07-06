@@ -49,16 +49,21 @@ def guardar_estado(clave, valor):
         estado = {}
         if os.path.exists(STATE_FILE):
             try:
-                with open(STATE_FILE, 'r') as f: estado = json.load(f)
+                with open(STATE_FILE, 'r', encoding='utf-8') as f: 
+                    estado = json.load(f)
             except: pass
         estado[clave] = valor
-        with open(STATE_FILE, 'w') as f: json.dump(estado, f)
+        try:
+            with open(STATE_FILE, 'w', encoding='utf-8') as f: 
+                json.dump(estado, f)
+        except: pass
 
 def leer_estado(clave):
     with STATE_LOCK:
         if os.path.exists(STATE_FILE):
             try:
-                with open(STATE_FILE, 'r') as f: return json.load(f).get(clave)
+                with open(STATE_FILE, 'r', encoding='utf-8') as f: 
+                    return json.load(f).get(clave)
             except: pass
         return None
 
@@ -70,23 +75,32 @@ def gps_time_to_tow(year, month, day, hour, minute, second):
 def parse_rinex_obs_completo(path):
     obs = {}
     sys_idx = {}
+    sys_tokens = {}
+    last_sys_char = None
+    
     with open(path, 'r', encoding='utf-8', errors='ignore') as f:
         in_h = True
         tow = None
         for line in f:
             if in_h:
                 if "SYS / # / OBS TYPES" in line:
-                    sys_char = line[0]
-                    t = [x.strip() for x in line[6:60].split() if x.strip()]
-                    sys_idx[sys_char] = {
-                        'C1': next((i for i, x in enumerate(t) if x.startswith('C1')), -1),
-                        'L1': next((i for i, x in enumerate(t) if x.startswith('L1')), -1),
-                        'C5': next((i for i, x in enumerate(t) if x.startswith('C5')), -1),
-                        'L5': next((i for i, x in enumerate(t) if x.startswith('L5')), -1),
-                        'S1': next((i for i, x in enumerate(t) if x.startswith('S1')), -1),
-                        'S5': next((i for i, x in enumerate(t) if x.startswith('S5')), -1)
-                    }
-                elif "END OF HEADER" in line: in_h = False
+                    sys_char = line[0].strip()
+                    if sys_char:
+                        last_sys_char = sys_char
+                    if last_sys_char:
+                        tokens = [x.strip() for x in line[6:60].split() if x.strip()]
+                        sys_tokens.setdefault(last_sys_char, []).extend(tokens)
+                elif "END OF HEADER" in line: 
+                    in_h = False
+                    for sc, t in sys_tokens.items():
+                        sys_idx[sc] = {
+                            'C1': next((i for i, x in enumerate(t) if x.startswith('C1')), -1),
+                            'L1': next((i for i, x in enumerate(t) if x.startswith('L1')), -1),
+                            'C5': next((i for i, x in enumerate(t) if x.startswith('C5')), -1),
+                            'L5': next((i for i, x in enumerate(t) if x.startswith('L5')), -1),
+                            'S1': next((i for i, x in enumerate(t) if x.startswith('S1')), -1),
+                            'S5': next((i for i, x in enumerate(t) if x.startswith('S5')), -1)
+                        }
             elif line.startswith('>'):
                 p = line[1:].split()
                 if len(p) >= 6:
@@ -123,7 +137,7 @@ def parse_rinex_obs_completo(path):
                     if v: data['S5'] = float(v.replace('D', 'E').replace('d', 'e'))
                 
                 if ('C1' in data and data['C1'] > 15000000.0) or ('C5' in data and data['C5'] > 15000000.0):
-                    obs[tow][line[0:3].strip()] = data
+                    obs.setdefault(tow, {})[line[0:3].strip()] = data
     return obs
 
 def interpolar_base_a_rover(obs_base, tr, max_gap=0.05):
@@ -140,7 +154,7 @@ def generar_rinex_sincronizado(raw_path, out_path, obs_dict):
     with open(raw_path, 'r', encoding='utf-8', errors='ignore') as f:
         for line in f:
             if "SYS / # / OBS TYPES" in line:
-                constelaciones_presentes.add(line[0])
+                if line[0].strip(): constelaciones_presentes.add(line[0])
                 header_lines.append(line)
             else:
                 header_lines.append(line)
@@ -632,7 +646,7 @@ def estadistica_desacoplada(coordenadas, conf_plani, conf_alti, err_hor_max, err
     if not valid_coords: return None, None, None, 0, 0, 0, 0, 0.0
     
     N_v = [c[0] for c in valid_coords]; E_v = [c[1] for c in valid_coords]; Z_v = [c[2] for c in valid_coords]
-    f_v = [c[3] for c in valid_coords if c[3] == "FIXED"]
+    f_v = [c[3] for c in valid_coords if len(c) > 3 and c[3] == "FIXED"]
 
     def calc_mean_std(arr):
         n = len(arr); m = sum(arr) / n
@@ -644,7 +658,7 @@ def estadistica_desacoplada(coordenadas, conf_plani, conf_alti, err_hor_max, err
     E_f = [x for x in E_v if abs(x - E_m) <= conf_plani * E_s] if E_s > 0 else E_v
     Z_f = [x for x in Z_v if abs(x - Z_m) <= conf_alti * Z_s] if Z_s > 0 else Z_v
 
-    fix_ratio = (len(f_v) / len(valid_coords)) * 100
+    fix_ratio = (len(f_v) / len(valid_coords)) * 100 if valid_coords else 0.0
     return sum(N_f)/max(1, len(N_f)), sum(E_f)/max(1, len(E_f)), sum(Z_f)/max(1, len(Z_f)), N_s, E_s, Z_s, min(len(N_f), len(E_f), len(Z_f)), fix_ratio
 
 # =====================================================================
@@ -670,17 +684,22 @@ def generar_informe_homogeneizacion_detallado(base_name, rover_name, base_raw, r
     cs, es, s_ini, s_fin, tr_s, _ = get_stats(rover_sinc)
     t_exito = (es / er * 100) if er > 0 else 0.0
     
+    b_ini_str = f"{b_ini[3]:02d}:{b_ini[4]:02d}:{b_ini[5]:05.2f}" if b_ini else "N/A"
+    b_fin_str = f"{b_fin[3]:02d}:{b_fin[4]:02d}:{b_fin[5]:05.2f}" if b_fin else "N/A"
+    r_ini_str = f"{r_ini[3]:02d}:{r_ini[4]:02d}:{r_ini[5]:05.2f}" if r_ini else "N/A"
+    r_fin_str = f"{r_fin[3]:02d}:{r_fin[4]:02d}:{r_fin[5]:05.2f}" if r_fin else "N/A"
+    
     informe = f"""
 ========================================================================
     AUDITORÍA FORENSE DE EMPAREJAMIENTO DE ÉPOCAS
 ========================================================================
 [1] PARÁMETROS DE CONTROL (BASE) : {base_name}
   [-] Épocas Crudas Registradas : {eb}
-  [-] Ventana de Observación    : {b_ini[3]:02d}:{b_ini[4]:02d}:{b_ini[5]:05.2f} - {b_fin[3]:02d}:{b_fin[4]:02d}:{b_fin[5]:05.2f}
+  [-] Ventana de Observación    : {b_ini_str} - {b_fin_str}
 
 [2] PARÁMETROS DEL MÓVIL (ROVER) : {rover_name}
   [-] Épocas Crudas Registradas : {er}
-  [-] Ventana de Observación    : {r_ini[3]:02d}:{r_ini[4]:02d}:{r_ini[5]:05.2f} - {r_fin[3]:02d}:{r_fin[4]:02d}:{r_fin[5]:05.2f}
+  [-] Ventana de Observación    : {r_ini_str} - {r_fin_str}
 
 [3] MATRIZ RESULTANTE (ESTRICTA, SIN INTERPOLACIÓN)
   [-] Épocas Útiles Sincronizadas: {es}
@@ -769,7 +788,8 @@ def tab1_homogenizar():
             c = 0
             for tr in sorted(list(rover_raw_dict.keys())):
                 c += 1
-                if c % max(1, total_epochs // 10) == 0: yield f"[PROGRESO] Cotejando épocas sin distorsión... {int((c / total_epochs) * 100)}%\n"
+                if total_epochs > 0 and c % max(1, total_epochs // 10) == 0: 
+                    yield f"[PROGRESO] Cotejando épocas sin distorsión... {int((c / total_epochs) * 100)}%\n"
                 base_interp = interpolar_base_a_rover(base_raw_dict, tr)
                 if base_interp:
                     base_sinc[tr] = base_interp
@@ -797,7 +817,7 @@ def tab1_homogenizar():
 def tab2_efemerides():
     def procesar():
         try:
-            yield "> [SISTEMA] Iniciando Etapa 2: Motor de Navegación Orbital e Ionosférico...\n"
+            yield "> [SISTEMA] Iniciando Para-Metrización Orbital de Precisión...\n"
             bp = leer_estado('base_raw')
             if not bp or not os.path.exists(bp): yield "> [ERROR FATAL] Falta RINEX Base en memoria.\n"; return
             ft = obtener_fecha_obs(bp)
@@ -860,12 +880,12 @@ def tab3_calibrar():
             
             coords_raw = []
             for t in t_sample:
-                sem, status = calcular_dd_ppk_lambda_epoca(sd_suavizada[t], nav, X_b, Y_b, Z_b, t, 10.0) # Máscara basal fija
+                sem, status = calcular_dd_ppk_lambda_epoca(sd_suavizada[t], nav, X_b, Y_b, Z_b, t, 10.0)
                 if sem:
                     X_ri, Y_ri, Z_ri = sem
                     la, lo, al = ecef_a_geodesicas(X_ri, Y_ri, Z_ri)
                     nt, et = geodesicas_a_utm(la, lo, utm_h)
-                    coords_raw.append((nt, et, al))
+                    coords_raw.append((nt, et, al, status))
             
             if not coords_raw:
                 yield "> [ERROR] Nube de puntos bruta colapsada.\n"; return
@@ -876,7 +896,6 @@ def tab3_calibrar():
             deltas_h.sort()
             deltas_v.sort()
             
-            # Anclamos el Hard Filter estricto al percentil 10 de élite geométrica verdadera
             idx_optimo = max(1, len(deltas_h) // 10)
             best_eh = max(0.01, float(deltas_h[idx_optimo]))
             best_ev = max(0.01, float(deltas_v[idx_optimo]))
@@ -896,7 +915,6 @@ def tab3_calibrar():
             cp_center, cp_span = 2.0, 1.5
             ca_center, ca_span = 2.0, 1.5
             
-            # 8 niveles de zoom continuo garantizan precisión 100% inamovible (IEEE 754)
             for nivel in range(8):
                 yield f"  [+] Refinando espacio de búsqueda (Zoom {nivel+1}/8)...\n"
                 
@@ -904,7 +922,6 @@ def tab3_calibrar():
                 cp_grid = [cp_center - cp_span, cp_center, cp_center + cp_span]
                 ca_grid = [ca_center - ca_span, ca_center, ca_center + ca_span]
                 
-                # Truncar sobre límites geodésicos lógicos
                 m_grid = [max(5.0, min(15.0, x)) for x in m_grid]
                 cp_grid = [max(0.1, min(5.0, x)) for x in cp_grid]
                 ca_grid = [max(0.1, min(5.0, x)) for x in ca_grid]
@@ -928,7 +945,6 @@ def tab3_calibrar():
                     
                     for cp in set(cp_grid):
                         for ca in set(ca_grid):
-                            # INYECTAMOS LOS ERRORES EXACTOS CALCULADOS EN LA FASE 1
                             res = estadistica_desacoplada(coords, cp, ca, best_eh, best_ev)
                             if res[0] is None: continue
                             nf, ef, zf, std_n, std_e, std_z, ret, fix_ratio = res
@@ -948,7 +964,6 @@ def tab3_calibrar():
                                     'dn': nf - utm_n_r, 'de': ef - utm_e_r, 'dz': zf - utm_c_r
                                 }
                 
-                # Preparamos el siguiente Zoom reduciendo el área de búsqueda a la mitad
                 m_center, m_span = nivel_best_m, m_span / 2.0
                 cp_center, cp_span = nivel_best_cp, cp_span / 2.0
                 ca_center, ca_span = nivel_best_ca, ca_span / 2.0
@@ -1043,7 +1058,8 @@ def tab4_procesar():
             
             for t in sd_suavizada:
                 c += 1
-                if c % max(1, t_eps // 10) == 0: yield f"[PROGRESO] Resolviendo Ecuaciones Matriciales DGPS... {int((c / t_eps) * 100)}%\n"
+                if t_eps > 0 and c % max(1, t_eps // 10) == 0: 
+                    yield f"[PROGRESO] Resolviendo Ecuaciones Matriciales DGPS... {int((c / t_eps) * 100)}%\n"
                 
                 sem, status = calcular_dd_ppk_lambda_epoca(sd_suavizada[t], nav, X_b, Y_b, Z_b, t, p_mask)
                 if not sem: continue
@@ -1083,4 +1099,4 @@ def tab4_procesar():
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=7000, debug=True)
-"
+
