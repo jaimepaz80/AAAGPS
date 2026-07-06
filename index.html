@@ -61,7 +61,7 @@
 
         <section id="tab1" class="tab-content active bg-gray-800 p-6 rounded shadow-lg">
             <h2 class="text-xl mb-4 font-semibold border-b border-gray-600 pb-2">Archivos de Observación (RINEX .obs)</h2>
-            <form id="form-tab1" onsubmit="submitForm(event, '/api/tab1_homogenizar', 'console1', 2)">
+            <form id="form-tab1" onsubmit="submitForm(event, '/tab1_homogenizar', 'console1', 2)">
                 <div class="grid grid-cols-2 gap-4 mb-4">
                     <div>
                         <label class="block text-sm mb-1">Archivo Base Pivote (Sesión Completa):</label>
@@ -89,7 +89,7 @@
         <section id="tab3" class="tab-content bg-gray-800 p-6 rounded shadow-lg">
             <h2 class="text-xl mb-4 font-semibold border-b border-gray-600 pb-2">Investigación de Operaciones: Búsqueda y Calibración Exacta</h2>
             <p class="text-sm text-gray-400 mb-4">Simulador Monte Carlo pentadimensional continuo (14 decimales IEEE 754). Minimiza el RMSE contra una coordenada Rover conocida optimizando 5 variables críticas.</p>
-            <form id="form-tab3" onsubmit="submitForm(event, '/api/tab3_calibrar', 'console3', 4)">
+            <form id="form-tab3" onsubmit="submitForm(event, '/tab3_calibrar', 'console3', 4)">
                 
                 <div class="grid grid-cols-3 gap-4 mb-4">
                     <div class="col-span-3"><h3 class="text-purple-400 font-bold text-sm">COORDENADAS ABSOLUTAS BASE (ESTACIÓN FIJA)</h3></div>
@@ -133,7 +133,7 @@
 
         <section id="tab4" class="tab-content bg-gray-800 p-6 rounded shadow-lg">
             <h2 class="text-xl mb-4 font-semibold border-b border-gray-600 pb-2">Ajuste de Red DGPS Diferencial (Cálculo Rover Desconocido)</h2>
-            <form id="form-tab4" onsubmit="submitForm(event, '/api/tab4_procesar', 'console4', null)">
+            <form id="form-tab4" onsubmit="submitForm(event, '/tab4_procesar', 'console4', null)">
                 
                 <div class="grid grid-cols-1 gap-4 mb-4">
                     <div>
@@ -290,8 +290,7 @@
                         if (consoleId === 'console4') document.getElementById('btn-pdf-tab4').classList.remove('hidden');
                         if (consoleId === 'console1') document.getElementById('btn-pdf-tab1').classList.remove('hidden');
                         
-                        // ACTUALIZADO: Compara con la nueva ruta
-                        if (url === '/api/tab3_calibrar' && fullOutput.includes('[SUCCESS]')) {
+                        if (url === '/tab3_calibrar' && fullOutput.includes('[SUCCESS]')) {
                             
                             document.querySelector('#form-tab4 input[name="utm_norte"]').value = document.querySelector('#form-tab3 input[name="utm_norte"]').value;
                             document.querySelector('#form-tab4 input[name="utm_este"]').value = document.querySelector('#form-tab3 input[name="utm_este"]').value;
@@ -328,8 +327,7 @@
             const display = document.getElementById('console2');
             display.innerHTML = "> Conectando con IGS...\n";
             try {
-                // ACTUALIZADO: Apunta a /api/tab2_efemerides
-                const response = await fetch('/api/tab2_efemerides', { method: 'POST' });
+                const response = await fetch('/tab2_efemerides', { method: 'POST' });
                 const reader = response.body.getReader();
                 const decoder = new TextDecoder();
                 while (true) {
@@ -397,3 +395,4 @@
     </script>
 </body>
 </html>
+
