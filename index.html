@@ -2,6 +2,7 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>GNSS Engine L1-Sinc DGPS</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
@@ -16,8 +17,9 @@
         .disabled-tab { opacity: 0.5; pointer-events: none; }
     </style>
 </head>
-<body class="bg-gray-900 text-gray-100 min-h-screen font-sans get-ready">
+<body class="bg-gray-900 text-gray-100 min-h-screen font-sans">
 
+    <!-- CONTENEDOR DE LOGIN -->
     <div id="login-container" class="flex items-center justify-center min-h-screen px-4">
         <div class="bg-gray-800 p-8 rounded-lg shadow-2xl border border-gray-700 w-full max-w-md">
             <div class="text-center mb-6">
@@ -39,6 +41,7 @@
         </div>
     </div>
 
+    <!-- CONTENEDOR DE LA APLICACIÓN -->
     <div id="app-container" class="container mx-auto p-4 max-w-5xl hidden">
         <header class="border-b border-gray-700 pb-4 mb-6 flex justify-between items-center">
             <div>
@@ -53,16 +56,17 @@
         </header>
 
         <nav class="flex space-x-2 bg-gray-800 p-2 rounded mb-6" id="tabs-nav">
-            <button onclick="switchTab(1)" id="btn-tab1" class="px-4 py-2 rounded bg-blue-600 font-bold">1. Datos Raw (Calibración)</button>
-            <button onclick="switchTab(2)" id="btn-tab2" class="px-4 py-2 rounded bg-gray-700 disabled-tab">2. Efemérides</button>
-            <button onclick="switchTab(3)" id="btn-tab3" class="px-4 py-2 rounded bg-gray-700 disabled-tab">3. Calibración Exacta</button>
-            <button onclick="switchTab(4)" id="btn-tab4" class="px-4 py-2 rounded bg-gray-700 disabled-tab">4. Procesar Punto</button>
+            <button onclick="switchTab(1)" id="btn-tab1" class="px-4 py-2 rounded bg-blue-600 font-bold text-sm sm:text-base">1. Datos Raw (Calibración)</button>
+            <button onclick="switchTab(2)" id="btn-tab2" class="px-4 py-2 rounded bg-gray-700 disabled-tab text-sm sm:text-base">2. Efemérides</button>
+            <button onclick="switchTab(3)" id="btn-tab3" class="px-4 py-2 rounded bg-gray-700 disabled-tab text-sm sm:text-base">3. Calibración Exacta</button>
+            <button onclick="switchTab(4)" id="btn-tab4" class="px-4 py-2 rounded bg-gray-700 disabled-tab text-sm sm:text-base">4. Procesar Punto</button>
         </nav>
 
+        <!-- PESTAÑA 1 -->
         <section id="tab1" class="tab-content active bg-gray-800 p-6 rounded shadow-lg">
             <h2 class="text-xl mb-4 font-semibold border-b border-gray-600 pb-2">Archivos de Observación (RINEX .obs)</h2>
             <form id="form-tab1" onsubmit="submitForm(event, '/tab1_homogenizar', 'console1', 2)">
-                <div class="grid grid-cols-2 gap-4 mb-4">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                     <div>
                         <label class="block text-sm mb-1">Archivo Base Pivote (Sesión Completa):</label>
                         <input type="file" name="obs_base" required class="w-full bg-gray-700 p-2 rounded border border-gray-600">
@@ -78,6 +82,7 @@
             <button id="btn-pdf-tab1" onclick="descargarTextoPDF('console1', 'Informe_Sincronizacion')" class="hidden mt-4 bg-red-600 hover:bg-red-500 text-white font-bold py-2 px-4 rounded w-full shadow-lg">Descargar Informe de Épocas PDF</button>
         </section>
 
+        <!-- PESTAÑA 2 -->
         <section id="tab2" class="tab-content bg-gray-800 p-6 rounded shadow-lg">
             <h2 class="text-xl mb-4 font-semibold border-b border-gray-600 pb-2">Efemérides Transmitidas (Broadcast)</h2>
             <p class="text-sm text-gray-400 mb-4">Descarga automática de IGS/BKG según fecha de la Base.</p>
@@ -86,13 +91,14 @@
             <button id="btn-pdf-tab2" onclick="descargarTextoPDF('console2', 'Informe_Efemerides')" class="hidden mt-4 bg-red-600 hover:bg-red-500 text-white font-bold py-2 px-4 rounded w-full shadow-lg">Descargar PDF de Efemérides</button>
         </section>
 
+        <!-- PESTAÑA 3 -->
         <section id="tab3" class="tab-content bg-gray-800 p-6 rounded shadow-lg">
             <h2 class="text-xl mb-4 font-semibold border-b border-gray-600 pb-2">Investigación de Operaciones: Búsqueda y Calibración Exacta</h2>
             <p class="text-sm text-gray-400 mb-4">Simulador Monte Carlo pentadimensional continuo (14 decimales IEEE 754). Minimiza el RMSE contra una coordenada Rover conocida optimizando 5 variables críticas.</p>
             <form id="form-tab3" onsubmit="submitForm(event, '/tab3_calibrar', 'console3', 4)">
                 
-                <div class="grid grid-cols-3 gap-4 mb-4">
-                    <div class="col-span-3"><h3 class="text-purple-400 font-bold text-sm">COORDENADAS ABSOLUTAS BASE (ESTACIÓN FIJA)</h3></div>
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
+                    <div class="sm:col-span-3"><h3 class="text-purple-400 font-bold text-sm">COORDENADAS ABSOLUTAS BASE (ESTACIÓN FIJA)</h3></div>
                     <div><label class="block text-xs">Norte (Y):</label><input type="number" step="any" name="utm_norte" required class="w-full bg-gray-700 p-1 text-sm rounded"></div>
                     <div><label class="block text-xs">Este (X):</label><input type="number" step="any" name="utm_este" required class="w-full bg-gray-700 p-1 text-sm rounded"></div>
                     <div><label class="block text-xs">Cota Elipsoidal (Z):</label><input type="number" step="any" name="utm_cota" required class="w-full bg-gray-700 p-1 text-sm rounded"></div>
@@ -105,21 +111,21 @@
                     </div>
                 </div>
 
-                <div class="grid grid-cols-3 gap-4 mb-4 border-t border-gray-700 pt-4">
-                    <div class="col-span-3"><h3 class="text-green-400 font-bold text-sm">COORDENADAS VERDADERAS ROVER (PUNTO DE CONTROL)</h3></div>
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4 border-t border-gray-700 pt-4">
+                    <div class="sm:col-span-3"><h3 class="text-green-400 font-bold text-sm">COORDENADAS VERDADERAS ROVER (PUNTO DE CONTROL)</h3></div>
                     <div><label class="block text-xs">Norte Rover (Y):</label><input type="number" step="any" name="utm_norte_r" required class="w-full bg-gray-700 p-1 text-sm rounded border border-green-500"></div>
                     <div><label class="block text-xs">Este Rover (X):</label><input type="number" step="any" name="utm_este_r" required class="w-full bg-gray-700 p-1 text-sm rounded border border-green-500"></div>
                     <div><label class="block text-xs">Cota Rover (Z):</label><input type="number" step="any" name="utm_cota_r" required class="w-full bg-gray-700 p-1 text-sm rounded border border-green-500"></div>
                 </div>
                 
-                <div class="grid grid-cols-2 gap-4 mb-4 border-t border-gray-700 pt-4">
-                    <div class="col-span-2"><h3 class="text-red-400 font-bold text-sm">PARÁMETROS HARD FILTER (Calculados y Editables)</h3></div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4 border-t border-gray-700 pt-4">
+                    <div class="sm:col-span-2"><h3 class="text-red-400 font-bold text-sm">PARÁMETROS HARD FILTER (Calculados y Editables)</h3></div>
                     <div><label class="block text-xs text-red-300 font-bold">Error Permitido Horizontal (m):</label><input type="number" step="any" name="err_hor_max" value="0.50" class="w-full bg-gray-700 p-1 text-sm rounded border border-red-500"></div>
                     <div><label class="block text-xs text-red-300 font-bold">Error Permitido Vertical (m):</label><input type="number" step="any" name="err_ver_max" value="0.50" class="w-full bg-gray-700 p-1 text-sm rounded border border-red-500"></div>
                 </div>
 
-                <div class="grid grid-cols-3 gap-4 mb-4 border-t border-gray-700 pt-4">
-                    <div class="col-span-3"><h3 class="text-blue-400 font-bold text-sm">PARÁMETROS ESTADÍSTICOS Y MÁSCARA (Calculados y Editables)</h3></div>
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4 border-t border-gray-700 pt-4">
+                    <div class="sm:col-span-3"><h3 class="text-blue-400 font-bold text-sm">PARÁMETROS ESTADÍSTICOS Y MÁSCARA (Calculados y Editables)</h3></div>
                     <div><label class="block text-xs">Máscara Elevación (°):</label><input type="number" step="any" name="param_mask" value="10.00" class="w-full bg-gray-700 p-1 text-sm rounded"></div>
                     <div><label class="block text-xs">Filtro Sigma Plan (cp):</label><input type="number" step="any" name="param_cp" value="2.50" class="w-full bg-gray-700 p-1 text-sm rounded"></div>
                     <div><label class="block text-xs">Filtro Sigma Alt (ca):</label><input type="number" step="any" name="param_ca" value="1.50" class="w-full bg-gray-700 p-1 text-sm rounded"></div>
@@ -131,6 +137,7 @@
             <button id="btn-pdf-tab3" onclick="descargarTextoPDF('console3', 'Informe_Calibracion_RMSE')" class="hidden mt-4 bg-red-600 hover:bg-red-500 text-white font-bold py-2 px-4 rounded w-full shadow-lg">Descargar Informe de Calibración PDF</button>
         </section>
 
+        <!-- PESTAÑA 4 -->
         <section id="tab4" class="tab-content bg-gray-800 p-6 rounded shadow-lg">
             <h2 class="text-xl mb-4 font-semibold border-b border-gray-600 pb-2">Ajuste de Red DGPS Diferencial (Cálculo Rover Desconocido)</h2>
             <form id="form-tab4" onsubmit="submitForm(event, '/tab4_procesar', 'console4', null)">
@@ -143,8 +150,8 @@
                     </div>
                 </div>
 
-                <div class="grid grid-cols-3 gap-4 mb-4 border-t border-gray-700 pt-4">
-                    <div class="col-span-3"><h3 class="text-yellow-400 font-bold text-sm">COORDENADA ABSOLUTA BASE (AUTO-LLENADO)</h3></div>
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4 border-t border-gray-700 pt-4">
+                    <div class="sm:col-span-3"><h3 class="text-yellow-400 font-bold text-sm">COORDENADA ABSOLUTA BASE (AUTO-LLENADO)</h3></div>
                     <div><label class="block text-xs">Norte (Y):</label><input type="number" step="any" name="utm_norte" required class="w-full bg-gray-700 p-1 text-sm rounded"></div>
                     <div><label class="block text-xs">Este (X):</label><input type="number" step="any" name="utm_este" required class="w-full bg-gray-700 p-1 text-sm rounded"></div>
                     <div><label class="block text-xs">Cota Elipsoidal (Z):</label><input type="number" step="any" name="utm_cota" required class="w-full bg-gray-700 p-1 text-sm rounded"></div>
@@ -157,19 +164,19 @@
                     </div>
                 </div>
                 
-                <div class="grid grid-cols-2 gap-4 mb-4 border-t border-gray-700 pt-4">
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4 border-t border-gray-700 pt-4">
                     <div><label class="block text-xs">Altura Antena Base (m):</label><input type="number" step="any" name="altura_base" value="0.000" class="w-full bg-gray-700 p-1 text-sm rounded"></div>
                     <div><label class="block text-xs">Altura Antena Rover (m):</label><input type="number" step="any" name="altura_rover" value="0.000" class="w-full bg-gray-700 p-1 text-sm rounded"></div>
                 </div>
 
-                <div class="grid grid-cols-2 gap-4 mb-4 border-t border-gray-700 pt-4">
-                    <div class="col-span-2"><h3 class="text-red-400 font-bold text-sm">FILTRO EXCLUYENTE (AUTO-LLENADO / EDITABLE)</h3></div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4 border-t border-gray-700 pt-4">
+                    <div class="sm:col-span-2"><h3 class="text-red-400 font-bold text-sm">FILTRO EXCLUYENTE (AUTO-LLENADO / EDITABLE)</h3></div>
                     <div><label class="block text-xs text-red-300 font-bold">Error Permitido Horizontal (m):</label><input type="number" step="any" name="err_hor_max" value="0.50" class="w-full bg-gray-700 p-1 text-sm rounded border border-red-500"></div>
                     <div><label class="block text-xs text-red-300 font-bold">Error Permitido Vertical (m):</label><input type="number" step="any" name="err_ver_max" value="0.50" class="w-full bg-gray-700 p-1 text-sm rounded border border-red-500"></div>
                 </div>
 
-                <div class="grid grid-cols-3 gap-4 mb-4 border-t border-gray-700 pt-4">
-                    <div class="col-span-3"><h3 class="text-blue-400 font-bold text-sm">PARÁMETROS CALIBRADOS (AUTO-LLENADO / EDITABLE)</h3></div>
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4 border-t border-gray-700 pt-4">
+                    <div class="sm:col-span-3"><h3 class="text-blue-400 font-bold text-sm">PARÁMETROS CALIBRADOS (AUTO-LLENADO / EDITABLE)</h3></div>
                     <div><label class="block text-xs">Máscara Elevación (°):</label><input type="number" step="any" name="param_mask" value="10.00" class="w-full bg-gray-700 p-1 text-sm rounded"></div>
                     <div><label class="block text-xs">Filtro Sigma Plan (cp):</label><input type="number" step="any" name="param_cp" value="2.50" class="w-full bg-gray-700 p-1 text-sm rounded"></div>
                     <div><label class="block text-xs">Filtro Sigma Alt (ca):</label><input type="number" step="any" name="param_ca" value="1.50" class="w-full bg-gray-700 p-1 text-sm rounded"></div>
@@ -233,7 +240,7 @@
             auth.signOut();
         }
 
-        // --- LÓGICA DE NAVEGACIÓN Y PROCESAMIENTO ORIGINAL ---
+        // --- LÓGICA DE NAVEGACIÓN Y PROCESAMIENTO ---
         function switchTab(num) {
             document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
             document.getElementById('tab' + num).classList.add('active');
@@ -251,100 +258,121 @@
             const form = e.target;
             const data = new FormData(form);
             const display = document.getElementById(consoleId);
-            display.innerHTML = "> Procesando...\n";
+            display.textContent = "> Procesando...\n";
             
-            if (consoleId === 'console3') {
-                const btn = document.getElementById('btn-pdf-tab3');
-                if(btn) btn.classList.add('hidden');
-            }
-            if (consoleId === 'console4') {
-                const btn = document.getElementById('btn-pdf-tab4');
-                if(btn) btn.classList.add('hidden');
-            }
-            if (consoleId === 'console1') {
-                const btn = document.getElementById('btn-pdf-tab1');
-                if(btn) btn.classList.add('hidden');
-            }
+            // Ocultar botones PDF al reiniciar proceso
+            const pdfButtons = ['btn-pdf-tab1', 'btn-pdf-tab3', 'btn-pdf-tab4'];
+            pdfButtons.forEach(id => {
+                const btn = document.getElementById(id);
+                if(btn && consoleId === id.replace('btn-pdf-', 'console')) btn.classList.add('hidden');
+            });
 
             let fullOutput = "";
 
             try {
                 const response = await fetch(url, { method: 'POST', body: data });
+                if (!response.body) throw new Error("No se recibió cuerpo de respuesta del servidor.");
+                
                 const reader = response.body.getReader();
                 const decoder = new TextDecoder();
+
                 while (true) {
                     const { value, done } = await reader.read();
                     if (done) break;
-                    let text = decoder.decode(value);
                     
+                    // Se usa { stream: true } para manejar cortes de caracteres multibyte de forma segura
+                    let text = decoder.decode(value, { stream: true });
                     fullOutput += text;
-                    display.innerHTML += text;
-                    display.scrollTop = display.scrollHeight;
                     
-                    if (text.includes('[SUCCESS]') || text.includes('[ERROR]')) {
-                        if (text.includes('[SUCCESS]') && nextTab) {
-                            document.getElementById('btn-tab' + nextTab).classList.remove('disabled-tab');
+                    display.textContent = fullOutput;
+                    display.scrollTop = display.scrollHeight;
+                }
+
+                // Las validaciones de éxito se realizan sobre el total recibido al terminar el flujo
+                if (fullOutput.includes('[SUCCESS]')) {
+                    if (nextTab) {
+                        document.getElementById('btn-tab' + nextTab).classList.remove('disabled-tab');
+                    }
+                    
+                    if (consoleId === 'console1') document.getElementById('btn-pdf-tab1').classList.remove('hidden');
+                    if (consoleId === 'console3') document.getElementById('btn-pdf-tab3').classList.remove('hidden');
+                    if (consoleId === 'console4') document.getElementById('btn-pdf-tab4').classList.remove('hidden');
+                    
+                    if (url === '/tab3_calibrar') {
+                        // Auto-llenado de coordenadas Base hacia Tab 4
+                        document.querySelector('#form-tab4 input[name="utm_norte"]').value = document.querySelector('#form-tab3 input[name="utm_norte"]').value;
+                        document.querySelector('#form-tab4 input[name="utm_este"]').value = document.querySelector('#form-tab3 input[name="utm_este"]').value;
+                        document.querySelector('#form-tab4 input[name="utm_cota"]').value = document.querySelector('#form-tab3 input[name="utm_cota"]').value;
+                        document.querySelector('#form-tab4 input[name="utm_huso"]').value = document.querySelector('#form-tab3 input[name="utm_huso"]').value;
+                        document.querySelector('#form-tab4 select[name="utm_hemisferio"]').value = document.querySelector('#form-tab3 select[name="utm_hemisferio"]').value;
+
+                        // Extracción de parámetros calculados vía Regex
+                        const m_mask = fullOutput.match(/Máscara Elevación[^:]*:\s*([0-9.-]+)/);
+                        const m_cp = fullOutput.match(/Filtro Sigma Plan[^:]*:\s*([0-9.-]+)/);
+                        const m_ca = fullOutput.match(/Filtro Sigma Alt[^:]*:\s*([0-9.-]+)/);
+                        const m_eh = fullOutput.match(/Error Permitido Horizontal[^:]*:\s*([0-9.-]+)/);
+                        const m_ev = fullOutput.match(/Error Permitido Vertical[^:]*:\s*([0-9.-]+)/);
+                        
+                        if (m_mask && m_mask[1]) {
+                            document.querySelector('#form-tab4 input[name="param_mask"]').value = m_mask[1];
+                            document.querySelector('#form-tab3 input[name="param_mask"]').value = m_mask[1];
                         }
-                        
-                        if (consoleId === 'console3') document.getElementById('btn-pdf-tab3').classList.remove('hidden');
-                        if (consoleId === 'console4') document.getElementById('btn-pdf-tab4').classList.remove('hidden');
-                        if (consoleId === 'console1') document.getElementById('btn-pdf-tab1').classList.remove('hidden');
-                        
-                        if (url === '/tab3_calibrar' && fullOutput.includes('[SUCCESS]')) {
-                            
-                            document.querySelector('#form-tab4 input[name="utm_norte"]').value = document.querySelector('#form-tab3 input[name="utm_norte"]').value;
-                            document.querySelector('#form-tab4 input[name="utm_este"]').value = document.querySelector('#form-tab3 input[name="utm_este"]').value;
-                            document.querySelector('#form-tab4 input[name="utm_cota"]').value = document.querySelector('#form-tab3 input[name="utm_cota"]').value;
-                            document.querySelector('#form-tab4 input[name="utm_huso"]').value = document.querySelector('#form-tab3 input[name="utm_huso"]').value;
-                            document.querySelector('#form-tab4 select[name="utm_hemisferio"]').value = document.querySelector('#form-tab3 select[name="utm_hemisferio"]').value;
-
-                            const m_mask = fullOutput.match(/Máscara Elevación[^:]*:\s*([0-9.-]+)/);
-                            const m_cp = fullOutput.match(/Filtro Sigma Plan[^:]*:\s*([0-9.-]+)/);
-                            const m_ca = fullOutput.match(/Filtro Sigma Alt[^:]*:\s*([0-9.-]+)/);
-                            const m_eh = fullOutput.match(/Error Permitido Horizontal[^:]*:\s*([0-9.-]+)/);
-                            const m_ev = fullOutput.match(/Error Permitido Vertical[^:]*:\s*([0-9.-]+)/);
-                            
-                            if (m_mask && m_mask[1]) document.querySelector('#form-tab4 input[name="param_mask"]').value = m_mask[1];
-                            if (m_cp && m_cp[1]) document.querySelector('#form-tab4 input[name="param_cp"]').value = m_cp[1];
-                            if (m_ca && m_ca[1]) document.querySelector('#form-tab4 input[name="param_ca"]').value = m_ca[1];
-                            if (m_eh && m_eh[1]) document.querySelector('#form-tab4 input[name="err_hor_max"]').value = m_eh[1];
-                            if (m_ev && m_ev[1]) document.querySelector('#form-tab4 input[name="err_ver_max"]').value = m_ev[1];
-
-                            if (m_mask && m_mask[1]) document.querySelector('#form-tab3 input[name="param_mask"]').value = m_mask[1];
-                            if (m_cp && m_cp[1]) document.querySelector('#form-tab3 input[name="param_cp"]').value = m_cp[1];
-                            if (m_ca && m_ca[1]) document.querySelector('#form-tab3 input[name="param_ca"]').value = m_ca[1];
-                            if (m_eh && m_eh[1]) document.querySelector('#form-tab3 input[name="err_hor_max"]').value = m_eh[1];
-                            if (m_ev && m_ev[1]) document.querySelector('#form-tab3 input[name="err_ver_max"]').value = m_ev[1];
+                        if (m_cp && m_cp[1]) {
+                            document.querySelector('#form-tab4 input[name="param_cp"]').value = m_cp[1];
+                            document.querySelector('#form-tab3 input[name="param_cp"]').value = m_cp[1];
+                        }
+                        if (m_ca && m_ca[1]) {
+                            document.querySelector('#form-tab4 input[name="param_ca"]').value = m_ca[1];
+                            document.querySelector('#form-tab3 input[name="param_ca"]').value = m_ca[1];
+                        }
+                        if (m_eh && m_eh[1]) {
+                            document.querySelector('#form-tab4 input[name="err_hor_max"]').value = m_eh[1];
+                            document.querySelector('#form-tab3 input[name="err_hor_max"]').value = m_eh[1];
+                        }
+                        if (m_ev && m_ev[1]) {
+                            document.querySelector('#form-tab4 input[name="err_ver_max"]').value = m_ev[1];
+                            document.querySelector('#form-tab3 input[name="err_ver_max"]').value = m_ev[1];
                         }
                     }
+                } else if (fullOutput.includes('[ERROR]')) {
+                    console.error("El servidor retornó un error controlado en el proceso.");
                 }
+
             } catch (err) {
-                display.innerHTML += "\n[ERROR] " + err.message;
+                display.textContent += "\n[ERROR] " + err.message;
             }
         }
 
         async function submitTab2() {
             const display = document.getElementById('console2');
-            display.innerHTML = "> Conectando con IGS...\n";
+            display.textContent = "> Conectando con IGS...\n";
+            let fullOutput = "";
+
             try {
                 const response = await fetch('/tab2_efemerides', { method: 'POST' });
+                if (!response.body) throw new Error("No se recibió respuesta del servidor.");
+                
                 const reader = response.body.getReader();
                 const decoder = new TextDecoder();
+
                 while (true) {
                     const { value, done } = await reader.read();
                     if (done) break;
-                    let text = decoder.decode(value);
-                    display.innerHTML += text;
-                    display.scrollTop = display.scrollHeight;
                     
-                    if (text.includes('[SUCCESS]')) {
-                        document.getElementById('btn-tab3').classList.remove('disabled-tab');
-                        document.getElementById('btn-tab4').classList.remove('disabled-tab');
-                        document.getElementById('btn-pdf-tab2').classList.remove('hidden');
-                    }
+                    let text = decoder.decode(value, { stream: true });
+                    fullOutput += text;
+                    
+                    display.textContent = fullOutput;
+                    display.scrollTop = display.scrollHeight;
+                }
+
+                if (fullOutput.includes('[SUCCESS]')) {
+                    document.getElementById('btn-tab3').classList.remove('disabled-tab');
+                    document.getElementById('btn-tab4').classList.remove('disabled-tab');
+                    document.getElementById('btn-pdf-tab2').classList.remove('hidden');
                 }
             } catch (err) {
-                display.innerHTML += "\n[ERROR] " + err.message;
+                display.textContent += "\n[ERROR] " + err.message;
             }
         }
 
@@ -357,7 +385,7 @@
                 }
                 const { jsPDF } = window.jspdf;
                 
-                let lineasCrudas = display.innerText.split('\n');
+                let lineasCrudas = display.textContent.split('\n');
                 let reporteLimpio = lineasCrudas.filter(l => 
                     !l.includes('[SUCCESS]') && 
                     !l.includes('[PROGRESO]') &&
@@ -376,23 +404,28 @@
                 
                 let pos_y = 50; 
                 const pos_x = 40; 
+                const maxLineWidth = 530; // Margen adaptativo seguro para tamaño carta
                 
                 for(let i=0; i < reporteLimpio.length; i++) {
-                    if (pos_y > 750) { 
-                        doc.addPage();
-                        pos_y = 50;
+                    // Dividir el texto de forma dinámica si excede el ancho máximo de página
+                    let lineasDivididas = doc.splitTextToSize(reporteLimpio[i], maxLineWidth);
+                    
+                    for(let j=0; j < lineasDivididas.length; j++) {
+                        if (pos_y > 740) { 
+                            doc.addPage();
+                            pos_y = 50;
+                        }
+                        doc.text(lineasDivididas[j], pos_x, pos_y);
+                        pos_y += 14; 
                     }
-                    doc.text(reporteLimpio[i], pos_x, pos_y);
-                    pos_y += 14; 
                 }
                 
                 doc.save(nombreBase + '_' + new Date().getTime() + '.pdf');
             } catch (error) {
                 console.error("Error al generar el PDF: ", error);
-                alert("Ocurrió un error al generar el PDF. Revisa la consola de tu navegador para más detalles.");
+                alert("Ocurrió un error al generar el PDF. Revisa la consola del navegador.");
             }
         }
     </script>
 </body>
 </html>
-
