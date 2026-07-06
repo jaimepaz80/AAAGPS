@@ -11,8 +11,9 @@ from flask import Flask, request, send_file, Response, jsonify
 
 app = Flask(__name__)
 
-# --- RUTA DINÁMICA DE TRABAJO ---
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# --- RUTA DINÁMICA DE TRABAJO (EDICIÓN VERCEL SERVERLESS) ---
+import tempfile
+BASE_DIR = tempfile.gettempdir()
 
 UPLOAD_FOLDER = os.path.join(BASE_DIR, 'temp_rinex')
 REPORT_FOLDER = os.path.join(BASE_DIR, 'informes')
@@ -1082,3 +1083,4 @@ def tab4_procesar():
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=7000, debug=True)
+
