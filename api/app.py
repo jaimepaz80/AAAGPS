@@ -8,11 +8,11 @@ import ssl
 import json
 import threading
 from flask import Flask, request, send_file, Response, jsonify
+import tempfile
 
 app = Flask(__name__)
 
 # --- RUTA DINÁMICA DE TRABAJO (EDICIÓN VERCEL SERVERLESS) ---
-import tempfile
 BASE_DIR = tempfile.gettempdir()
 
 UPLOAD_FOLDER = os.path.join(BASE_DIR, 'temp_rinex')
@@ -28,13 +28,6 @@ STATE_LOCK = threading.Lock()
 C_LIGHT = 299792458.0
 OMEGA_E = 7.2921151467e-5
 MU = 3.986005e14
-
-def obtener_lambda_dinamico(sys_char, freq_band):
-    if freq_band == 'L5': return C_LIGHT / 1176.45e6
-    else:
-        if sys_char == 'C': return C_LIGHT / 1561.098e6 
-        if sys_char in 'GEJS': return C_LIGHT / 1575.42e6 
-        return C_LIGHT / 1602.0e6 
 
 def safe_f(val, default=0.0):
     try: return float(val) if val and str(val).strip() != '' else default
@@ -478,6 +471,7 @@ def aislar_diferencias_simples_ppk(obs_b, obs_r):
         if len(sd_epoca) > 1: sd_suavizada[tow] = sd_epoca
     return sd_suavizada
 
+# [PARCHE APLICADO] Cálculo diferencial acoplado, evaluando matriz topocéntrica dentro de iteraciones
 def calcular_dd_ppk_lambda_epoca(sd_epoca, nav, X_b, Y_b, Z_b, tr, mask_angle, snr_mask=25.0):
     try:
         X_iter, Y_iter, Z_iter = X_b, Y_b, Z_b 
@@ -487,14 +481,19 @@ def calcular_dd_ppk_lambda_epoca(sd_epoca, nav, X_b, Y_b, Z_b, tr, mask_angle, s
         alpha, beta = iono['alpha'], iono['beta']
         
         sat_positions = {}
+        # [PARCHE APLICADO] Independizar el vector satélite Base vs Rover considerando deriva temporal
         for s, d in sd_epoca.items():
             if s == '_meta' or d['sd_P'] is None: continue 
-            tau = d['pr_r'] / C_LIGHT
-            sp = calcular_posicion_satelite_wgs84(seleccionar_efemeride_optima(nav.get(s), tr-tau), tr-tau, tau, s[0])
-            if sp:
-                el_r, az_r = calcular_topocentricas(sp[0], sp[1], sp[2], X_iter, Y_iter, Z_iter)
+            tau_r = d['pr_r'] / C_LIGHT
+            tau_b = d['pr_b'] / C_LIGHT
+            
+            sp_r = calcular_posicion_satelite_wgs84(seleccionar_efemeride_optima(nav.get(s), tr-tau_r), tr-tau_r, tau_r, s[0])
+            sp_b = calcular_posicion_satelite_wgs84(seleccionar_efemeride_optima(nav.get(s), tr-tau_b), tr-tau_b, tau_b, s[0])
+            
+            if sp_r and sp_b:
+                el_r, az_r = calcular_topocentricas(sp_r[0], sp_r[1], sp_r[2], X_iter, Y_iter, Z_iter)
                 if el_r >= mask_angle and d.get('snr', 30.0) >= snr_mask:
-                    sat_positions[s] = {'sp': sp, 'el': el_r, 'az': az_r, 'sd_P': d['sd_P'], 'snr': d.get('snr', 30.0)}
+                    sat_positions[s] = {'sp_r': sp_r, 'sp_b': sp_b, 'sd_P': d['sd_P'], 'snr': d.get('snr', 30.0)}
         
         if len(sat_positions) < 4: return None, "FAILED"
         
@@ -506,7 +505,9 @@ def calcular_dd_ppk_lambda_epoca(sd_epoca, nav, X_b, Y_b, Z_b, tr, mask_angle, s
         for c in constellations:
             c_sats = [s for s in sat_list_full if s[0] == c]
             if len(c_sats) >= 2:
-                ref_sats[c] = max(c_sats, key=lambda k: sat_positions[k]['el'])
+                # Seleccionar satélite de referencia con mayor elevación basado en posición inicial
+                r_candidate = max(c_sats, key=lambda k: calcular_topocentricas(sat_positions[k]['sp_r'][0], sat_positions[k]['sp_r'][1], sat_positions[k]['sp_r'][2], X_iter, Y_iter, Z_iter)[0])
+                ref_sats[c] = r_candidate
                 c_sats.remove(ref_sats[c])
                 sat_list.extend(c_sats)
         
@@ -518,6 +519,13 @@ def calcular_dd_ppk_lambda_epoca(sd_epoca, nav, X_b, Y_b, Z_b, tr, mask_angle, s
             iono_m = calcular_klobuchar(lat, lon, el, az, tr, alpha, beta)
             return dist + tropo, iono_m, dist
 
+        # Precalcular las distancias y retrasos de la Base (son estáticos para la coordenada de referencia)
+        base_calcs = {}
+        for s, data in sat_positions.items():
+            el_b, az_b = calcular_topocentricas(data['sp_b'][0], data['sp_b'][1], data['sp_b'][2], X_b, Y_b, Z_b)
+            rho_b, iono_b, dist_b = calc_rho(data['sp_b'], X_b, Y_b, Z_b, lat_b, lon_b, alt_b, el_b, az_b)
+            base_calcs[s] = rho_b + iono_b
+
         prev_residuals = [0.0] * len(sat_list)
 
         for iteracion in range(8):
@@ -527,19 +535,20 @@ def calcular_dd_ppk_lambda_epoca(sd_epoca, nav, X_b, Y_b, Z_b, tr, mask_angle, s
             L = []      
             W_diag = [] 
             
-            ref_calcs = {}
+            # [PARCHE APLICADO] Calcular topocéntricas del Rover dinámicamente dentro del bucle
+            c_ref = {}
             for c, r_sat in ref_sats.items():
                 r_data = sat_positions[r_sat]
-                rho_ref_r_base, iono_ref_r, dist_ref_r = calc_rho(r_data['sp'], X_iter, Y_iter, Z_iter, lat_it, lon_it, alt_it, r_data['el'], r_data['az'])
-                el_ref_b, az_ref_b = calcular_topocentricas(r_data['sp'][0], r_data['sp'][1], r_data['sp'][2], X_b, Y_b, Z_b)
-                rho_ref_b_base, iono_ref_b, _ = calc_rho(r_data['sp'], X_b, Y_b, Z_b, lat_b, lon_b, alt_b, el_ref_b, az_ref_b)
+                el_r, az_r = calcular_topocentricas(r_data['sp_r'][0], r_data['sp_r'][1], r_data['sp_r'][2], X_iter, Y_iter, Z_iter)
+                rho_r, iono_r, dist_r = calc_rho(r_data['sp_r'], X_iter, Y_iter, Z_iter, lat_it, lon_it, alt_it, el_r, az_r)
                 
-                ref_calcs[c] = {
-                    'dist_ref_r': dist_ref_r,
-                    'SD_P_calc_ref': (rho_ref_r_base + iono_ref_r) - (rho_ref_b_base + iono_ref_b),
-                    'sp': r_data['sp'],
-                    'el': r_data['el'],
-                    'snr': r_data.get('snr', 30.0),
+                SD_P_calc_ref = (rho_r + iono_r) - base_calcs[r_sat]
+                c_ref[c] = {
+                    'dist_r': dist_r,
+                    'SD_P_calc_ref': SD_P_calc_ref,
+                    'sp_r': r_data['sp_r'],
+                    'el_r': el_r,
+                    'snr': r_data['snr'],
                     'sd_P': r_data['sd_P']
                 }
             
@@ -547,24 +556,23 @@ def calcular_dd_ppk_lambda_epoca(sd_epoca, nav, X_b, Y_b, Z_b, tr, mask_angle, s
             for i, s in enumerate(sat_list):
                 c = s[0]
                 data = sat_positions[s]
-                rc = ref_calcs[c]
+                rc = c_ref[c]
                 
-                rho_i_r_base, iono_i_r, dist_i_r = calc_rho(data['sp'], X_iter, Y_iter, Z_iter, lat_it, lon_it, alt_it, data['el'], data['az'])
-                el_i_b, az_i_b = calcular_topocentricas(data['sp'][0], data['sp'][1], data['sp'][2], X_b, Y_b, Z_b)
-                rho_i_b_base, iono_i_b, _ = calc_rho(data['sp'], X_b, Y_b, Z_b, lat_b, lon_b, alt_b, el_i_b, az_i_b)
+                el_i_r, az_i_r = calcular_topocentricas(data['sp_r'][0], data['sp_r'][1], data['sp_r'][2], X_iter, Y_iter, Z_iter)
+                rho_i_r, iono_i_r, dist_i_r = calc_rho(data['sp_r'], X_iter, Y_iter, Z_iter, lat_it, lon_it, alt_it, el_i_r, az_i_r)
                 
-                SD_P_calc_i = (rho_i_r_base + iono_i_r) - (rho_i_b_base + iono_i_b)
+                SD_P_calc_i = (rho_i_r + iono_i_r) - base_calcs[s]
                 DD_P_calc = SD_P_calc_i - rc['SD_P_calc_ref']
                 
                 dx_geom = [
-                    -(data['sp'][0] - X_iter) / dist_i_r - (-(rc['sp'][0] - X_iter) / rc['dist_ref_r']),
-                    -(data['sp'][1] - Y_iter) / dist_i_r - (-(rc['sp'][1] - Y_iter) / rc['dist_ref_r']),
-                    -(data['sp'][2] - Z_iter) / dist_i_r - (-(rc['sp'][2] - Z_iter) / rc['dist_ref_r'])
+                    -(data['sp_r'][0] - X_iter) / dist_i_r - (-(rc['sp_r'][0] - X_iter) / rc['dist_r']),
+                    -(data['sp_r'][1] - Y_iter) / dist_i_r - (-(rc['sp_r'][1] - Y_iter) / rc['dist_r']),
+                    -(data['sp_r'][2] - Z_iter) / dist_i_r - (-(rc['sp_r'][2] - Z_iter) / rc['dist_r'])
                 ]
                 
-                sin_el_i_sq = math.sin(math.radians(data['el']))**2
-                sin_el_ref_sq = math.sin(math.radians(rc['el']))**2
-                snr_i_pow = 10.0 ** (data.get('snr', 30.0) / 10.0)
+                sin_el_i_sq = math.sin(math.radians(el_i_r))**2
+                sin_el_ref_sq = math.sin(math.radians(rc['el_r']))**2
+                snr_i_pow = 10.0 ** (data['snr'] / 10.0)
                 snr_ref_pow = 10.0 ** (rc['snr'] / 10.0)
                 
                 w_i_ref = (sin_el_i_sq * snr_i_pow * sin_el_ref_sq * snr_ref_pow) / max(1.0, (sin_el_i_sq * snr_i_pow) + (sin_el_ref_sq * snr_ref_pow))
@@ -620,6 +628,7 @@ def calcular_dd_ppk_lambda_epoca(sd_epoca, nav, X_b, Y_b, Z_b, tr, mask_angle, s
 # =====================================================================
 # ESTADÍSTICAS Y FILTRADO VINCULANTE (HARD FILTER)
 # =====================================================================
+# [PARCHE APLICADO] Filtrado espacial Euclidiano acoplado para prevenir la destrucción y ceros en la matriz
 def estadistica_desacoplada(coordenadas, conf_plani, conf_alti, err_hor_max, err_ver_max):
     if not coordenadas: return None, None, None, 0, 0, 0, 0, 0.0
     
@@ -634,6 +643,7 @@ def estadistica_desacoplada(coordenadas, conf_plani, conf_alti, err_hor_max, err
 
     med_N = get_median(N_list); med_E = get_median(E_list); med_Z = get_median(Z_list)
     
+    # 1. Aplicación del Filtro Fuerte excluyente (Hard Filter) 
     valid_coords = []
     for c in coordenadas:
         dh = math.hypot(c[0] - med_N, c[1] - med_E)
@@ -645,21 +655,33 @@ def estadistica_desacoplada(coordenadas, conf_plani, conf_alti, err_hor_max, err
 
     if not valid_coords: return None, None, None, 0, 0, 0, 0, 0.0
     
-    N_v = [c[0] for c in valid_coords]; E_v = [c[1] for c in valid_coords]; Z_v = [c[2] for c in valid_coords]
-    f_v = [c[3] for c in valid_coords if len(c) > 3 and c[3] == "FIXED"]
-
+    # 2. Análisis Estadístico Acoplado
     def calc_mean_std(arr):
-        n = len(arr); m = sum(arr) / n
+        n = len(arr); m = sum(arr) / max(1, n)
         return m, (math.sqrt(sum((x - m)**2 for x in arr) / n) if n > 1 else 0.0)
 
+    N_v = [c[0] for c in valid_coords]; E_v = [c[1] for c in valid_coords]; Z_v = [c[2] for c in valid_coords]
     N_m, N_s = calc_mean_std(N_v); E_m, E_s = calc_mean_std(E_v); Z_m, Z_s = calc_mean_std(Z_v)
     
-    N_f = [x for x in N_v if abs(x - N_m) <= conf_plani * N_s] if N_s > 0 else N_v
-    E_f = [x for x in E_v if abs(x - E_m) <= conf_plani * E_s] if E_s > 0 else E_v
-    Z_f = [x for x in Z_v if abs(x - Z_m) <= conf_alti * Z_s] if Z_s > 0 else Z_v
+    final_coords = []
+    for c in valid_coords:
+        if N_s > 0 and abs(c[0] - N_m) > conf_plani * N_s: continue
+        if E_s > 0 and abs(c[1] - E_m) > conf_plani * E_s: continue
+        if Z_s > 0 and abs(c[2] - Z_m) > conf_alti * Z_s: continue
+        final_coords.append(c)
 
-    fix_ratio = (len(f_v) / len(valid_coords)) * 100 if valid_coords else 0.0
-    return sum(N_f)/max(1, len(N_f)), sum(E_f)/max(1, len(E_f)), sum(Z_f)/max(1, len(Z_f)), N_s, E_s, Z_s, min(len(N_f), len(E_f), len(Z_f)), fix_ratio
+    if not final_coords: return None, None, None, 0, 0, 0, 0, 0.0
+
+    N_f = [c[0] for c in final_coords]
+    E_f = [c[1] for c in final_coords]
+    Z_f = [c[2] for c in final_coords]
+    f_v = [c[3] for c in final_coords if len(c) > 3 and c[3] == "FIXED"]
+
+    fix_ratio = (len(f_v) / len(final_coords)) * 100 if final_coords else 0.0
+    
+    # Previene divisiones por cero devolviendo el centroide definitivo
+    len_f = max(1, len(final_coords))
+    return sum(N_f)/len_f, sum(E_f)/len_f, sum(Z_f)/len_f, N_s, E_s, Z_s, len(final_coords), fix_ratio
 
 # =====================================================================
 # GENERADORES DE INFORMES (FRONTEND)
@@ -848,6 +870,10 @@ def tab3_calibrar():
     utm_e_r = safe_f(request.form.get('utm_este_r'), 0.0)
     utm_c_r = safe_f(request.form.get('utm_cota_r'), 0.0)
 
+    # [PARCHE APLICADO] Extracción de alturas de Antena para matriz ECEF
+    h_b = safe_f(request.form.get('altura_base'), 0.0)
+    h_r = safe_f(request.form.get('altura_rover'), 0.0)
+
     p_max_gap = safe_f(request.form.get('param_max_gap'), 0.5)
     p_snr = safe_f(request.form.get('param_snr'), 25.0)
 
@@ -876,7 +902,9 @@ def tab3_calibrar():
 
             t_sample = list(sd_suavizada.keys())
             lat_b, lon_b, _ = utm_a_geodesicas(utm_e, utm_n, utm_h, utm_hem)
-            X_b, Y_b, Z_b = geodesicas_a_ecef(lat_b, lon_b, utm_c)
+            
+            # [PARCHE APLICADO] Inyección de Altura de Antena para evaluación contra el terreno
+            X_b, Y_b, Z_b = geodesicas_a_ecef(lat_b, lon_b, utm_c + h_b)
 
             # =========================================================================
             # FASE 1: CÁLCULO DETERMINISTA DE ERRORES MÁXIMOS (Eh, Ev)
@@ -890,7 +918,8 @@ def tab3_calibrar():
                     X_ri, Y_ri, Z_ri = sem
                     la, lo, al = ecef_a_geodesicas(X_ri, Y_ri, Z_ri)
                     nt, et = geodesicas_a_utm(la, lo, utm_h)
-                    coords_raw.append((nt, et, al, status))
+                    # [PARCHE APLICADO] Se descuenta h_r para comparar coordenada real en terreno
+                    coords_raw.append((nt, et, al - h_r, status))
             
             if not coords_raw:
                 yield "> [ERROR] Nube de puntos bruta colapsada.\n"; return
@@ -922,7 +951,6 @@ def tab3_calibrar():
             snr_center, snr_span = p_snr, 5.0
             gap_center, gap_span = p_max_gap, 0.2
             
-            # Cargar archivos en bruto si existen para resincronización dinámica de Gap
             p_b_raw = leer_estado('base_raw')
             p_r_raw = os.path.join(UPLOAD_FOLDER, 'rover_calibracion_raw.obs')
             
@@ -936,7 +964,6 @@ def tab3_calibrar():
             rover_tows_full = sorted(list(obs_r_full.keys()))
             base_tows_full = sorted(list(obs_b_full.keys()))
             
-            # Iteración en 6 niveles de zoom para mantener un tiempo de respuesta óptimo en la web
             for nivel in range(6):
                 yield f"  [+] Refinando espacio de búsqueda (Zoom {nivel+1}/6)...\n"
                 
@@ -951,7 +978,6 @@ def tab3_calibrar():
                 nivel_best_snr, nivel_best_gap = snr_center, gap_center
                 
                 for gap in set(gap_grid):
-                    # Sincronización Dinámica al Vuelo
                     obs_b_sync = {}
                     for tr in rover_tows_full:
                         if not base_tows_full: continue
@@ -973,7 +999,7 @@ def tab3_calibrar():
                                     X_ri, Y_ri, Z_ri = sem
                                     la, lo, al = ecef_a_geodesicas(X_ri, Y_ri, Z_ri)
                                     nt, et = geodesicas_a_utm(la, lo, utm_h)
-                                    coords.append((nt, et, al, status))
+                                    coords.append((nt, et, al - h_r, status))
                             
                             if not coords: continue
                             
@@ -984,7 +1010,6 @@ def tab3_calibrar():
                                     nf, ef, zf, std_n, std_e, std_z, ret, fix_ratio = res
                                     
                                     rmse_3d = math.sqrt((nf - utm_n_r)**2 + (ef - utm_e_r)**2 + (zf - utm_c_r)**2)
-                                    # Penalización suave a Gaps amplios para evitar la deriva temporal innecesaria
                                     score = rmse_3d * (1.0 + gap * 0.05)
                                     
                                     if score < nivel_best_rmse:
