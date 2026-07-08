@@ -121,26 +121,26 @@
                 
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4 border-t border-gray-700 pt-4">
                     <div class="sm:col-span-2"><h3 class="text-red-400 font-bold text-sm">PARÁMETROS HARD FILTER (Calculados y Editables)</h3></div>
-                    <div><label class="block text-xs text-red-300 font-bold">Error Permitido Horizontal (m):</label><input type="number" step="any" name="err_hor_max" value="0.50" class="w-full bg-gray-700 p-1 text-sm rounded border border-red-500"></div>
-                    <div><label class="block text-xs text-red-300 font-bold">Error Permitido Vertical (m):</label><input type="number" step="any" name="err_ver_max" value="0.50" class="w-full bg-gray-700 p-1 text-sm rounded border border-red-500"></div>
+                    <div><label class="block text-xs text-red-300 font-bold">Error Permitido Horizontal (m):</label><input type="number" step="any" name="err_hor_max" value="1.50" class="w-full bg-gray-700 p-1 text-sm rounded border border-red-500"></div>
+                    <div><label class="block text-xs text-red-300 font-bold">Error Permitido Vertical (m):</label><input type="number" step="any" name="err_ver_max" value="2.00" class="w-full bg-gray-700 p-1 text-sm rounded border border-red-500"></div>
                 </div>
 
                 <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4 border-t border-gray-700 pt-4">
                     <div class="sm:col-span-3"><h3 class="text-blue-400 font-bold text-sm">PARÁMETROS ESTADÍSTICOS Y MÁSCARA (Calculados y Editables)</h3></div>
-                    <div><label class="block text-xs">Máscara Elevación (°):</label><input type="number" step="any" name="param_mask" value="10.00" class="w-full bg-gray-700 p-1 text-sm rounded"></div>
+                    <div><label class="block text-xs">Máscara Elevación (°):</label><input type="number" step="any" name="param_mask" value="5.78" class="w-full bg-gray-700 p-1 text-sm rounded"></div>
                     <div><label class="block text-xs">Filtro Sigma Plan (cp):</label><input type="number" step="any" name="param_cp" value="2.50" class="w-full bg-gray-700 p-1 text-sm rounded"></div>
-                    <div><label class="block text-xs">Filtro Sigma Alt (ca):</label><input type="number" step="any" name="param_ca" value="1.50" class="w-full bg-gray-700 p-1 text-sm rounded"></div>
+                    <div><label class="block text-xs">Filtro Sigma Alt (ca):</label><input type="number" step="any" name="param_ca" value="3.00" class="w-full bg-gray-700 p-1 text-sm rounded"></div>
                 </div>
 
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4 border-t border-gray-700 pt-4">
                     <div class="sm:col-span-2"><h3 class="text-orange-400 font-bold text-sm">PARÁMETROS AVANZADOS</h3></div>
                     <div>
                         <label class="block text-xs" title="Permite capturar la deriva natural de reloj de dispositivos Android sin perder épocas.">Tolerancia de Sincronización (segundos):</label>
-                        <input type="number" step="any" name="param_max_gap" value="0.5" class="w-full bg-gray-700 p-1 text-sm rounded">
+                        <input type="number" step="any" name="param_max_gap" value="0.50" class="w-full bg-gray-700 p-1 text-sm rounded">
                     </div>
                     <div>
                         <label class="block text-xs" title="Purga señales rebotadas (multipath). Valores < 25.0 introducen error de medición.">Máscara SNR (dBHz):</label>
-                        <input type="number" step="any" name="param_snr" value="25.0" class="w-full bg-gray-700 p-1 text-sm rounded">
+                        <input type="number" step="any" name="param_snr" value="18.50" class="w-full bg-gray-700 p-1 text-sm rounded">
                     </div>
                 </div>
 
@@ -183,26 +183,26 @@
 
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4 border-t border-gray-700 pt-4">
                     <div class="sm:col-span-2"><h3 class="text-red-400 font-bold text-sm">FILTRO EXCLUYENTE (AUTO-LLENADO / EDITABLE)</h3></div>
-                    <div><label class="block text-xs text-red-300 font-bold">Error Permitido Horizontal (m):</label><input type="number" step="any" name="err_hor_max" value="0.50" class="w-full bg-gray-700 p-1 text-sm rounded border border-red-500"></div>
-                    <div><label class="block text-xs text-red-300 font-bold">Error Permitido Vertical (m):</label><input type="number" step="any" name="err_ver_max" value="0.50" class="w-full bg-gray-700 p-1 text-sm rounded border border-red-500"></div>
+                    <div><label class="block text-xs text-red-300 font-bold">Error Permitido Horizontal (m):</label><input type="number" step="any" name="err_hor_max" value="1.50" class="w-full bg-gray-700 p-1 text-sm rounded border border-red-500"></div>
+                    <div><label class="block text-xs text-red-300 font-bold">Error Permitido Vertical (m):</label><input type="number" step="any" name="err_ver_max" value="2.00" class="w-full bg-gray-700 p-1 text-sm rounded border border-red-500"></div>
                 </div>
 
                 <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4 border-t border-gray-700 pt-4">
                     <div class="sm:col-span-3"><h3 class="text-blue-400 font-bold text-sm">PARÁMETROS CALIBRADOS (AUTO-LLENADO / EDITABLE)</h3></div>
-                    <div><label class="block text-xs">Máscara Elevación (°):</label><input type="number" step="any" name="param_mask" value="10.00" class="w-full bg-gray-700 p-1 text-sm rounded"></div>
+                    <div><label class="block text-xs">Máscara Elevación (°):</label><input type="number" step="any" name="param_mask" value="5.78" class="w-full bg-gray-700 p-1 text-sm rounded"></div>
                     <div><label class="block text-xs">Filtro Sigma Plan (cp):</label><input type="number" step="any" name="param_cp" value="2.50" class="w-full bg-gray-700 p-1 text-sm rounded"></div>
-                    <div><label class="block text-xs">Filtro Sigma Alt (ca):</label><input type="number" step="any" name="param_ca" value="1.50" class="w-full bg-gray-700 p-1 text-sm rounded"></div>
+                    <div><label class="block text-xs">Filtro Sigma Alt (ca):</label><input type="number" step="any" name="param_ca" value="3.00" class="w-full bg-gray-700 p-1 text-sm rounded"></div>
                 </div>
 
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4 border-t border-gray-700 pt-4">
                     <div class="sm:col-span-2"><h3 class="text-orange-400 font-bold text-sm">PARÁMETROS AVANZADOS (AUTO-LLENADO / EDITABLE)</h3></div>
                     <div>
                         <label class="block text-xs" title="Permite capturar la deriva natural de reloj de dispositivos Android sin perder épocas.">Tolerancia de Sincronización (segundos):</label>
-                        <input type="number" step="any" name="param_max_gap" value="0.5" class="w-full bg-gray-700 p-1 text-sm rounded">
+                        <input type="number" step="any" name="param_max_gap" value="0.50" class="w-full bg-gray-700 p-1 text-sm rounded">
                     </div>
                     <div>
                         <label class="block text-xs" title="Purga señales rebotadas (multipath). Valores < 25.0 introducen error de medición.">Máscara SNR (dBHz):</label>
-                        <input type="number" step="any" name="param_snr" value="25.0" class="w-full bg-gray-700 p-1 text-sm rounded">
+                        <input type="number" step="any" name="param_snr" value="18.50" class="w-full bg-gray-700 p-1 text-sm rounded">
                     </div>
                 </div>
 
@@ -441,3 +441,4 @@
     </script>
 </body>
 </html>
+
