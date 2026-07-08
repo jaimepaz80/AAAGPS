@@ -1012,13 +1012,14 @@ def tab3_calibrar():
                                     # Ratio de retención de épocas
                                     ret_ratio = ret / max(1, len(coords))
                                     
-                                    # Ignorar configuraciones que destruyan más del 80% de la muestra (Evita el Overfitting)
-                                    if ret_ratio < 0.20: continue
+                                    # Garantizar significancia estadística pura: Mínimo 15 épocas o 5% del lote, lo que sea mayor
+                                    min_epochs = max(15, int(len(coords) * 0.05))
+                                    if ret < min_epochs: continue
                                     
                                     rmse_3d = math.sqrt((nf - utm_n_r)**2 + (ef - utm_e_r)**2 + (zf - utm_c_r)**2)
                                     
-                                    # Función de costo: RMSE pesado inversamente por la raíz cuadrada de la retención
-                                    score = rmse_3d * (1.0 + gap * 0.05) * (1.0 / math.sqrt(ret_ratio))
+                                    # Función de costo óptima: El RMSE debe gobernar. Penalización leve lineal por purga de matriz.
+                                    score = rmse_3d * (1.0 + gap * 0.05) * (1.0 + (1.0 - ret_ratio) * 0.25)
                                     
                                     if score < nivel_best_rmse:
                                         nivel_best_rmse = score
