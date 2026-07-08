@@ -673,8 +673,12 @@ def estadistica_desacoplada(coordenadas, conf_plani, conf_alti, err_hor_max, err
 
     fix_ratio = (len(f_v) / len(final_coords)) * 100 if final_coords else 0.0
     
+    # [IO ÓPTIMA] Mediana Geométrica para aislar el núcleo inercial y anular el sesgo de Multipath
     len_f = max(1, len(final_coords))
-    return sum(N_f)/len_f, sum(E_f)/len_f, sum(Z_f)/len_f, N_s, E_s, Z_s, len(final_coords), fix_ratio
+    med_N_f = get_median(N_f)
+    med_E_f = get_median(E_f)
+    med_Z_f = get_median(Z_f)
+    return med_N_f, med_E_f, med_Z_f, N_s, E_s, Z_s, len(final_coords), fix_ratio
 
 # =====================================================================
 # GENERADORES DE INFORMES (FRONTEND)
@@ -1018,8 +1022,10 @@ def tab3_calibrar():
                                     
                                     rmse_3d = math.sqrt((nf - utm_n_r)**2 + (ef - utm_e_r)**2 + (zf - utm_c_r)**2)
                                     
-                                    # Función de costo óptima: El RMSE debe gobernar. Penalización leve lineal por purga de matriz.
-                                    score = rmse_3d * (1.0 + gap * 0.05) * (1.0 + (1.0 - ret_ratio) * 0.25)
+                                    # [IO ÓPTIMA] Función de Costo CÚBICA. 
+                                    # Un error de 2m genera un costo de 8. Un error de 0.2m genera un costo de 0.008.
+                                    # Obliga al Descenso de Gradiente a cazar la precisión decimétrica.
+                                    score = (rmse_3d ** 3) * (1.0 + gap * 0.05) * (1.0 + (1.0 - ret_ratio) * 0.10)
                                     
                                     if score < nivel_best_rmse:
                                         nivel_best_rmse = score
