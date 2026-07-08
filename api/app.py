@@ -1047,6 +1047,11 @@ def tab3_calibrar():
                 gap_center, gap_span = nivel_best_gap, gap_span / 2.0
             
             if best_rmse != float('inf'):
+                # [NUEVA INYECCIÓN] Guardar el vector de error sistemático (Bias de Antena/Atmósfera)
+                guardar_estado('calib_dn', best_params['dn'])
+                guardar_estado('calib_de', best_params['de'])
+                guardar_estado('calib_dz', best_params['dz'])
+
                 yield "\n========================================================\n"
                 yield "      [INFORME] PARÁMETROS ÓPTIMOS (CALIBRACIÓN OR 5D)\n"
                 yield "========================================================\n"
@@ -1160,18 +1165,28 @@ def tab4_procesar():
                 
             nf, ef, zf, std_n, std_e, std_z, ret, fix_ratio = res_estadistica
             
+            # [NUEVA INYECCIÓN] Extraer el vector de error sistemático de la calibración previa
+            calib_dn = float(leer_estado('calib_dn') or 0.0)
+            calib_de = float(leer_estado('calib_de') or 0.0)
+            calib_dz = float(leer_estado('calib_dz') or 0.0)
+
+            # [NUEVA INYECCIÓN] Aplicar traslación rígida topográfica (Shift Geométrico)
+            nf_shift = nf - calib_dn
+            ef_shift = ef - calib_de
+            zf_shift = (zf - h_r) - calib_dz
+            
             p_dict = {
                 'mask': p_mask, 'cp': p_cp, 'ca': p_ca,
                 'max_gap': p_max_gap, 'snr': p_snr,
                 'err_h': err_hor_max, 'err_v': err_ver_max,
-                'nf': nf, 'ef': ef, 'zf': zf - h_r, 
+                'nf': nf_shift, 'ef': ef_shift, 'zf': zf_shift, 
                 'ret': ret, 'total': len(coords), 'std_n': std_n, 'std_e': std_e, 'std_z': std_z,
                 'ez': std_z, 'fix_r': fix_ratio,
                 'base_file': leer_estado('name_base_raw') or "base.obs",
                 'rover_file': rf_nuevo_filename,
                 'nav_file': leer_estado('name_nav_file') or "auto_nav.nav",
                 'b_n': utm_n, 'b_e': utm_e, 'b_z': utm_c,
-                'r_n_calc': nf, 'r_e_calc': ef, 'r_z_calc': zf - h_r
+                'r_n_calc': nf_shift, 'r_e_calc': ef_shift, 'r_z_calc': zf_shift
             }
             
             yield "[PROGRESO] Ajuste DGPS Finalizado.\n"
@@ -1182,3 +1197,4 @@ def tab4_procesar():
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=7000, debug=True)
+
