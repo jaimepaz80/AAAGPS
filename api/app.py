@@ -853,7 +853,7 @@ def tab3_calibrar():
 
     def procesar():
         try:
-            yield "> [SISTEMA] Iniciando Búsqueda Determinista (Investigación de Operaciones OR)...\n"
+            yield "> [SISTEMA] Iniciando Búsqueda Determinista Pentadimensional (Investigación de Operaciones)...\n"
             if utm_e == 0.0 or utm_n == 0.0 or utm_n_r == 0.0 or utm_e_r == 0.0: 
                 yield "> [ERROR] Coordenadas Base y Rover (Calibración) son requeridas.\n"; return
             
@@ -909,9 +909,9 @@ def tab3_calibrar():
             yield f"  [*] Límite Vertical Inyectado: {best_ev:.14f} m\n\n"
             
             # =========================================================================
-            # FASE 2: MALLA DETERMINISTA DE REFINAMIENTO SUCESIVO (GRID ZOOMING)
+            # FASE 2: MALLA PENTADIMENSIONAL (M, Cp, Ca, SNR, Gap)
             # =========================================================================
-            yield "[PROGRESO] Fase 2: Malla Determinista para Parámetros (M, Cp, Ca)...\n"
+            yield "[PROGRESO] Fase 2: Malla Pentadimensional para Parámetros (M, Cp, Ca, SNR, Gap)...\n"
             
             best_rmse = float('inf')
             best_params = {}
@@ -919,64 +919,96 @@ def tab3_calibrar():
             m_center, m_span = 10.0, 5.0
             cp_center, cp_span = 2.0, 1.5
             ca_center, ca_span = 2.0, 1.5
+            snr_center, snr_span = p_snr, 5.0
+            gap_center, gap_span = p_max_gap, 0.2
             
-            for nivel in range(8):
-                yield f"  [+] Refinando espacio de búsqueda (Zoom {nivel+1}/8)...\n"
+            # Cargar archivos en bruto si existen para resincronización dinámica de Gap
+            p_b_raw = leer_estado('base_raw')
+            p_r_raw = os.path.join(UPLOAD_FOLDER, 'rover_calibracion_raw.obs')
+            
+            if p_b_raw and os.path.exists(p_b_raw) and os.path.exists(p_r_raw):
+                obs_b_full = parse_rinex_obs_completo(p_b_raw)
+                obs_r_full = parse_rinex_obs_completo(p_r_raw)
+            else:
+                obs_b_full = obs_b_raw
+                obs_r_full = obs_r_raw
                 
-                m_grid = [m_center - m_span, m_center, m_center + m_span]
-                cp_grid = [cp_center - cp_span, cp_center, cp_center + cp_span]
-                ca_grid = [ca_center - ca_span, ca_center, ca_center + ca_span]
+            rover_tows_full = sorted(list(obs_r_full.keys()))
+            base_tows_full = sorted(list(obs_b_full.keys()))
+            
+            # Iteración en 6 niveles de zoom para mantener un tiempo de respuesta óptimo en la web
+            for nivel in range(6):
+                yield f"  [+] Refinando espacio de búsqueda (Zoom {nivel+1}/6)...\n"
                 
-                m_grid = [max(5.0, min(15.0, x)) for x in m_grid]
-                cp_grid = [max(0.1, min(5.0, x)) for x in cp_grid]
-                ca_grid = [max(0.1, min(5.0, x)) for x in ca_grid]
+                m_grid = [round(max(5.0, min(15.0, x)), 2) for x in [m_center - m_span, m_center, m_center + m_span]]
+                cp_grid = [round(max(0.1, min(5.0, x)), 2) for x in [cp_center - cp_span, cp_center, cp_center + cp_span]]
+                ca_grid = [round(max(0.1, min(5.0, x)), 2) for x in [ca_center - ca_span, ca_center, ca_center + ca_span]]
+                snr_grid = [round(max(10.0, min(40.0, x)), 2) for x in [snr_center - snr_span, snr_center, snr_center + snr_span]]
+                gap_grid = [round(max(0.01, min(2.0, x)), 2) for x in [gap_center - gap_span, gap_center, gap_center + gap_span]]
                 
                 nivel_best_rmse = float('inf')
-                nivel_best_m = m_center
-                nivel_best_cp = cp_center
-                nivel_best_ca = ca_center
+                nivel_best_m, nivel_best_cp, nivel_best_ca = m_center, cp_center, ca_center
+                nivel_best_snr, nivel_best_gap = snr_center, gap_center
                 
-                for m in set(m_grid):
-                    coords = []
-                    for t in t_sample:
-                        sem, status = calcular_dd_ppk_lambda_epoca(sd_suavizada[t], nav, X_b, Y_b, Z_b, t, m, p_snr)
-                        if sem:
-                            X_ri, Y_ri, Z_ri = sem
-                            la, lo, al = ecef_a_geodesicas(X_ri, Y_ri, Z_ri)
-                            nt, et = geodesicas_a_utm(la, lo, utm_h)
-                            coords.append((nt, et, al, status))
+                for gap in set(gap_grid):
+                    # Sincronización Dinámica al Vuelo
+                    obs_b_sync = {}
+                    for tr in rover_tows_full:
+                        if not base_tows_full: continue
+                        idx = min(range(len(base_tows_full)), key=lambda i: abs(base_tows_full[i] - tr))
+                        if abs(base_tows_full[idx] - tr) <= gap:
+                            obs_b_sync[tr] = obs_b_full[base_tows_full[idx]].copy()
+                            obs_b_sync[tr]['_meta'] = obs_r_full[tr]['_meta']
                     
-                    if not coords: continue
+                    sd_suav = aislar_diferencias_simples_ppk(obs_b_sync, obs_r_full)
+                    t_samp = list(sd_suav.keys())
+                    if not sd_suav: continue
                     
-                    for cp in set(cp_grid):
-                        for ca in set(ca_grid):
-                            res = estadistica_desacoplada(coords, cp, ca, best_eh, best_ev)
-                            if res[0] is None: continue
-                            nf, ef, zf, std_n, std_e, std_z, ret, fix_ratio = res
+                    for m in set(m_grid):
+                        for snr in set(snr_grid):
+                            coords = []
+                            for t in t_samp:
+                                sem, status = calcular_dd_ppk_lambda_epoca(sd_suav[t], nav, X_b, Y_b, Z_b, t, m, snr)
+                                if sem:
+                                    X_ri, Y_ri, Z_ri = sem
+                                    la, lo, al = ecef_a_geodesicas(X_ri, Y_ri, Z_ri)
+                                    nt, et = geodesicas_a_utm(la, lo, utm_h)
+                                    coords.append((nt, et, al, status))
                             
-                            rmse_3d = math.sqrt((nf - utm_n_r)**2 + (ef - utm_e_r)**2 + (zf - utm_c_r)**2)
+                            if not coords: continue
                             
-                            if rmse_3d < nivel_best_rmse:
-                                nivel_best_rmse = rmse_3d
-                                nivel_best_m = m
-                                nivel_best_cp = cp
-                                nivel_best_ca = ca
-                                
-                                best_rmse = rmse_3d
-                                best_params = {
-                                    'mask': m, 'cp': cp, 'ca': ca, 'eh': best_eh, 'ev': best_ev,
-                                    'max_gap': p_max_gap, 'snr': p_snr,
-                                    'rmse': rmse_3d, 'ret': ret,
-                                    'dn': nf - utm_n_r, 'de': ef - utm_e_r, 'dz': zf - utm_c_r
-                                }
+                            for cp in set(cp_grid):
+                                for ca in set(ca_grid):
+                                    res = estadistica_desacoplada(coords, cp, ca, best_eh, best_ev)
+                                    if res[0] is None: continue
+                                    nf, ef, zf, std_n, std_e, std_z, ret, fix_ratio = res
+                                    
+                                    rmse_3d = math.sqrt((nf - utm_n_r)**2 + (ef - utm_e_r)**2 + (zf - utm_c_r)**2)
+                                    # Penalización suave a Gaps amplios para evitar la deriva temporal innecesaria
+                                    score = rmse_3d * (1.0 + gap * 0.05)
+                                    
+                                    if score < nivel_best_rmse:
+                                        nivel_best_rmse = score
+                                        nivel_best_m, nivel_best_cp, nivel_best_ca = m, cp, ca
+                                        nivel_best_snr, nivel_best_gap = snr, gap
+                                        
+                                        best_rmse = rmse_3d
+                                        best_params = {
+                                            'mask': m, 'cp': cp, 'ca': ca, 'eh': best_eh, 'ev': best_ev,
+                                            'max_gap': gap, 'snr': snr,
+                                            'rmse': rmse_3d, 'ret': ret,
+                                            'dn': nf - utm_n_r, 'de': ef - utm_e_r, 'dz': zf - utm_c_r
+                                        }
                 
                 m_center, m_span = nivel_best_m, m_span / 2.0
                 cp_center, cp_span = nivel_best_cp, cp_span / 2.0
                 ca_center, ca_span = nivel_best_ca, ca_span / 2.0
+                snr_center, snr_span = nivel_best_snr, snr_span / 2.0
+                gap_center, gap_span = nivel_best_gap, gap_span / 2.0
             
             if best_rmse != float('inf'):
                 yield "\n========================================================\n"
-                yield "      [INFORME] PARÁMETROS ÓPTIMOS (CALIBRACIÓN OR)\n"
+                yield "      [INFORME] PARÁMETROS ÓPTIMOS (CALIBRACIÓN OR 5D)\n"
                 yield "========================================================\n"
                 yield f"  [-] Tolerancia Sync (max_gap): {best_params['max_gap']:.2f}\n"
                 yield f"  [-] Máscara SNR (dBHz): {best_params['snr']:.2f}\n"
