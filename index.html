@@ -19,7 +19,6 @@
 </head>
 <body class="bg-gray-900 text-gray-100 min-h-screen font-sans">
 
-    <!-- CONTENEDOR DE LOGIN -->
     <div id="login-container" class="flex items-center justify-center min-h-screen px-4">
         <div class="bg-gray-800 p-8 rounded-lg shadow-2xl border border-gray-700 w-full max-w-md">
             <div class="text-center mb-6">
@@ -41,7 +40,6 @@
         </div>
     </div>
 
-    <!-- CONTENEDOR DE LA APLICACIÓN -->
     <div id="app-container" class="container mx-auto p-4 max-w-5xl hidden">
         <header class="border-b border-gray-700 pb-4 mb-6 flex justify-between items-center">
             <div>
@@ -62,7 +60,6 @@
             <button onclick="switchTab(4)" id="btn-tab4" class="px-4 py-2 rounded bg-gray-700 disabled-tab text-sm sm:text-base">4. Procesar Punto</button>
         </nav>
 
-        <!-- PESTAÑA 1 -->
         <section id="tab1" class="tab-content active bg-gray-800 p-6 rounded shadow-lg">
             <h2 class="text-xl mb-4 font-semibold border-b border-gray-600 pb-2">Archivos de Observación (RINEX .obs)</h2>
             <form id="form-tab1" onsubmit="submitForm(event, '/tab1_homogenizar', 'console1', 2)">
@@ -82,7 +79,6 @@
             <button id="btn-pdf-tab1" onclick="descargarTextoPDF('console1', 'Informe_Sincronizacion')" class="hidden mt-4 bg-red-600 hover:bg-red-500 text-white font-bold py-2 px-4 rounded w-full shadow-lg">Descargar Informe de Épocas PDF</button>
         </section>
 
-        <!-- PESTAÑA 2 -->
         <section id="tab2" class="tab-content bg-gray-800 p-6 rounded shadow-lg">
             <h2 class="text-xl mb-4 font-semibold border-b border-gray-600 pb-2">Efemérides Transmitidas (Broadcast)</h2>
             <p class="text-sm text-gray-400 mb-4">Descarga automática de IGS/BKG según fecha de la Base.</p>
@@ -91,7 +87,6 @@
             <button id="btn-pdf-tab2" onclick="descargarTextoPDF('console2', 'Informe_Efemerides')" class="hidden mt-4 bg-red-600 hover:bg-red-500 text-white font-bold py-2 px-4 rounded w-full shadow-lg">Descargar PDF de Efemérides</button>
         </section>
 
-        <!-- PESTAÑA 3 -->
         <section id="tab3" class="tab-content bg-gray-800 p-6 rounded shadow-lg">
             <h2 class="text-xl mb-4 font-semibold border-b border-gray-600 pb-2">Investigación de Operaciones: Búsqueda y Calibración Exacta</h2>
             <p class="text-sm text-gray-400 mb-4">Simulador Monte Carlo pentadimensional continuo (14 decimales IEEE 754). Minimiza el RMSE contra una coordenada Rover conocida optimizando 5 variables críticas.</p>
@@ -131,13 +126,24 @@
                     <div><label class="block text-xs">Filtro Sigma Alt (ca):</label><input type="number" step="any" name="param_ca" value="1.50" class="w-full bg-gray-700 p-1 text-sm rounded"></div>
                 </div>
 
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4 border-t border-gray-700 pt-4">
+                    <div class="sm:col-span-2"><h3 class="text-orange-400 font-bold text-sm">PARÁMETROS AVANZADOS</h3></div>
+                    <div>
+                        <label class="block text-xs" title="Permite capturar la deriva natural de reloj de dispositivos Android sin perder épocas.">Tolerancia de Sincronización (segundos):</label>
+                        <input type="number" step="any" name="param_max_gap" value="0.5" class="w-full bg-gray-700 p-1 text-sm rounded">
+                    </div>
+                    <div>
+                        <label class="block text-xs" title="Purga señales rebotadas (multipath). Valores < 25.0 introducen error de medición.">Máscara SNR (dBHz):</label>
+                        <input type="number" step="any" name="param_snr" value="25.0" class="w-full bg-gray-700 p-1 text-sm rounded">
+                    </div>
+                </div>
+
                 <button type="submit" class="w-full bg-purple-600 hover:bg-purple-500 py-3 rounded font-bold transition text-lg mt-2 shadow-lg">Ejecutar Motor de Calibración Pentadimensional</button>
             </form>
             <div id="console3" class="console p-4 mt-4 h-64 overflow-y-auto border border-gray-700 rounded"></div>
             <button id="btn-pdf-tab3" onclick="descargarTextoPDF('console3', 'Informe_Calibracion_RMSE')" class="hidden mt-4 bg-red-600 hover:bg-red-500 text-white font-bold py-2 px-4 rounded w-full shadow-lg">Descargar Informe de Calibración PDF</button>
         </section>
 
-        <!-- PESTAÑA 4 -->
         <section id="tab4" class="tab-content bg-gray-800 p-6 rounded shadow-lg">
             <h2 class="text-xl mb-4 font-semibold border-b border-gray-600 pb-2">Ajuste de Red DGPS Diferencial (Cálculo Rover Desconocido)</h2>
             <form id="form-tab4" onsubmit="submitForm(event, '/tab4_procesar', 'console4', null)">
@@ -180,6 +186,18 @@
                     <div><label class="block text-xs">Máscara Elevación (°):</label><input type="number" step="any" name="param_mask" value="10.00" class="w-full bg-gray-700 p-1 text-sm rounded"></div>
                     <div><label class="block text-xs">Filtro Sigma Plan (cp):</label><input type="number" step="any" name="param_cp" value="2.50" class="w-full bg-gray-700 p-1 text-sm rounded"></div>
                     <div><label class="block text-xs">Filtro Sigma Alt (ca):</label><input type="number" step="any" name="param_ca" value="1.50" class="w-full bg-gray-700 p-1 text-sm rounded"></div>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4 border-t border-gray-700 pt-4">
+                    <div class="sm:col-span-2"><h3 class="text-orange-400 font-bold text-sm">PARÁMETROS AVANZADOS (AUTO-LLENADO / EDITABLE)</h3></div>
+                    <div>
+                        <label class="block text-xs" title="Permite capturar la deriva natural de reloj de dispositivos Android sin perder épocas.">Tolerancia de Sincronización (segundos):</label>
+                        <input type="number" step="any" name="param_max_gap" value="0.5" class="w-full bg-gray-700 p-1 text-sm rounded">
+                    </div>
+                    <div>
+                        <label class="block text-xs" title="Purga señales rebotadas (multipath). Valores < 25.0 introducen error de medición.">Máscara SNR (dBHz):</label>
+                        <input type="number" step="any" name="param_snr" value="25.0" class="w-full bg-gray-700 p-1 text-sm rounded">
+                    </div>
                 </div>
 
                 <button type="submit" class="w-full bg-green-600 hover:bg-green-500 py-3 rounded font-bold transition text-lg mt-2 shadow-lg">Procesar Punto Desconocido</button>
@@ -305,6 +323,10 @@
                         document.querySelector('#form-tab4 input[name="utm_cota"]').value = document.querySelector('#form-tab3 input[name="utm_cota"]').value;
                         document.querySelector('#form-tab4 input[name="utm_huso"]').value = document.querySelector('#form-tab3 input[name="utm_huso"]').value;
                         document.querySelector('#form-tab4 select[name="utm_hemisferio"]').value = document.querySelector('#form-tab3 select[name="utm_hemisferio"]').value;
+                        
+                        // Sincronizar parámetros avanzados hacia Tab 4 explícitamente al calibrar
+                        document.querySelector('#form-tab4 input[name="param_max_gap"]').value = document.querySelector('#form-tab3 input[name="param_max_gap"]').value;
+                        document.querySelector('#form-tab4 input[name="param_snr"]').value = document.querySelector('#form-tab3 input[name="param_snr"]').value;
 
                         // Extracción de parámetros calculados vía Regex
                         const m_mask = fullOutput.match(/Máscara Elevación[^:]*:\s*([0-9.-]+)/);
@@ -312,6 +334,9 @@
                         const m_ca = fullOutput.match(/Filtro Sigma Alt[^:]*:\s*([0-9.-]+)/);
                         const m_eh = fullOutput.match(/Error Permitido Horizontal[^:]*:\s*([0-9.-]+)/);
                         const m_ev = fullOutput.match(/Error Permitido Vertical[^:]*:\s*([0-9.-]+)/);
+                        
+                        const m_max_gap = fullOutput.match(/Tolerancia Sync[^:]*:\s*([0-9.-]+)/);
+                        const m_snr = fullOutput.match(/Máscara SNR[^:]*:\s*([0-9.-]+)/);
                         
                         if (m_mask && m_mask[1]) {
                             document.querySelector('#form-tab4 input[name="param_mask"]').value = m_mask[1];
@@ -332,6 +357,14 @@
                         if (m_ev && m_ev[1]) {
                             document.querySelector('#form-tab4 input[name="err_ver_max"]').value = m_ev[1];
                             document.querySelector('#form-tab3 input[name="err_ver_max"]').value = m_ev[1];
+                        }
+                        if (m_max_gap && m_max_gap[1]) {
+                            document.querySelector('#form-tab4 input[name="param_max_gap"]').value = m_max_gap[1];
+                            document.querySelector('#form-tab3 input[name="param_max_gap"]').value = m_max_gap[1];
+                        }
+                        if (m_snr && m_snr[1]) {
+                            document.querySelector('#form-tab4 input[name="param_snr"]').value = m_snr[1];
+                            document.querySelector('#form-tab3 input[name="param_snr"]').value = m_snr[1];
                         }
                     }
                 } else if (fullOutput.includes('[ERROR]')) {
