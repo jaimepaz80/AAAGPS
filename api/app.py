@@ -930,7 +930,8 @@ def tab3_calibrar():
             deltas_h.sort()
             deltas_v.sort()
             
-            idx_optimo = max(1, len(deltas_h) // 10)
+            # [CORRECCIÓN CRÍTICA] Incremento del percentil de evaluación y exclusión al 95% para evitar destrucción del lote
+            idx_optimo = max(1, int(len(deltas_h) * 0.95) - 1)
             best_eh = max(0.01, float(deltas_h[idx_optimo]))
             best_ev = max(0.01, float(deltas_v[idx_optimo]))
             
@@ -967,11 +968,12 @@ def tab3_calibrar():
             for nivel in range(6):
                 yield f"  [+] Refinando espacio de búsqueda (Zoom {nivel+1}/6)...\n"
                 
-                m_grid = [round(max(5.0, min(15.0, x)), 2) for x in [m_center - m_span, m_center, m_center + m_span]]
-                cp_grid = [round(max(0.1, min(5.0, x)), 2) for x in [cp_center - cp_span, cp_center, cp_center + cp_span]]
-                ca_grid = [round(max(0.1, min(5.0, x)), 2) for x in [ca_center - ca_span, ca_center, ca_center + ca_span]]
-                snr_grid = [round(max(10.0, min(40.0, x)), 2) for x in [snr_center - snr_span, snr_center, snr_center + snr_span]]
-                gap_grid = [round(max(0.01, min(2.0, x)), 2) for x in [gap_center - gap_span, gap_center, gap_center + gap_span]]
+                # [CORRECCIÓN CRÍTICA] Remoción del redondeo (truncamiento a 2 decimales) para liberar la interpolación a resolución máxima
+                m_grid = [max(5.0, min(15.0, x)) for x in [m_center - m_span, m_center, m_center + m_span]]
+                cp_grid = [max(0.1, min(5.0, x)) for x in [cp_center - cp_span, cp_center, cp_center + cp_span]]
+                ca_grid = [max(0.1, min(5.0, x)) for x in [ca_center - ca_span, ca_center, ca_center + ca_span]]
+                snr_grid = [max(10.0, min(40.0, x)) for x in [snr_center - snr_span, snr_center, snr_center + snr_span]]
+                gap_grid = [max(0.01, min(2.0, x)) for x in [gap_center - gap_span, gap_center, gap_center + gap_span]]
                 
                 nivel_best_rmse = float('inf')
                 nivel_best_m, nivel_best_cp, nivel_best_ca = m_center, cp_center, ca_center
