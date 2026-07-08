@@ -335,6 +335,7 @@
                         const m_eh = fullOutput.match(/Error Permitido Horizontal[^:]*:\s*([0-9.-]+)/);
                         const m_ev = fullOutput.match(/Error Permitido Vertical[^:]*:\s*([0-9.-]+)/);
                         
+                        // Nuevos extractores para Tolerancia Sync y SNR
                         const m_max_gap = fullOutput.match(/Tolerancia Sync[^:]*:\s*([0-9.-]+)/);
                         const m_snr = fullOutput.match(/Máscara SNR[^:]*:\s*([0-9.-]+)/);
                         
@@ -358,6 +359,7 @@
                             document.querySelector('#form-tab4 input[name="err_ver_max"]').value = m_ev[1];
                             document.querySelector('#form-tab3 input[name="err_ver_max"]').value = m_ev[1];
                         }
+                        // Inyectar SNR y Sync a los campos calculados de pestaña 4
                         if (m_max_gap && m_max_gap[1]) {
                             document.querySelector('#form-tab4 input[name="param_max_gap"]').value = m_max_gap[1];
                             document.querySelector('#form-tab3 input[name="param_max_gap"]').value = m_max_gap[1];
@@ -462,3 +464,4 @@
     </script>
 </body>
 </html>
+
