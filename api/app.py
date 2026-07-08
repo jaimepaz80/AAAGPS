@@ -471,7 +471,6 @@ def aislar_diferencias_simples_ppk(obs_b, obs_r):
         if len(sd_epoca) > 1: sd_suavizada[tow] = sd_epoca
     return sd_suavizada
 
-# [PARCHE APLICADO] Cálculo diferencial acoplado, evaluando matriz topocéntrica dentro de iteraciones
 def calcular_dd_ppk_lambda_epoca(sd_epoca, nav, X_b, Y_b, Z_b, tr, mask_angle, snr_mask=25.0):
     try:
         X_iter, Y_iter, Z_iter = X_b, Y_b, Z_b 
@@ -481,7 +480,6 @@ def calcular_dd_ppk_lambda_epoca(sd_epoca, nav, X_b, Y_b, Z_b, tr, mask_angle, s
         alpha, beta = iono['alpha'], iono['beta']
         
         sat_positions = {}
-        # [PARCHE APLICADO] Independizar el vector satélite Base vs Rover considerando deriva temporal
         for s, d in sd_epoca.items():
             if s == '_meta' or d['sd_P'] is None: continue 
             tau_r = d['pr_r'] / C_LIGHT
@@ -505,7 +503,6 @@ def calcular_dd_ppk_lambda_epoca(sd_epoca, nav, X_b, Y_b, Z_b, tr, mask_angle, s
         for c in constellations:
             c_sats = [s for s in sat_list_full if s[0] == c]
             if len(c_sats) >= 2:
-                # Seleccionar satélite de referencia con mayor elevación basado en posición inicial
                 r_candidate = max(c_sats, key=lambda k: calcular_topocentricas(sat_positions[k]['sp_r'][0], sat_positions[k]['sp_r'][1], sat_positions[k]['sp_r'][2], X_iter, Y_iter, Z_iter)[0])
                 ref_sats[c] = r_candidate
                 c_sats.remove(ref_sats[c])
@@ -519,7 +516,6 @@ def calcular_dd_ppk_lambda_epoca(sd_epoca, nav, X_b, Y_b, Z_b, tr, mask_angle, s
             iono_m = calcular_klobuchar(lat, lon, el, az, tr, alpha, beta)
             return dist + tropo, iono_m, dist
 
-        # Precalcular las distancias y retrasos de la Base (son estáticos para la coordenada de referencia)
         base_calcs = {}
         for s, data in sat_positions.items():
             el_b, az_b = calcular_topocentricas(data['sp_b'][0], data['sp_b'][1], data['sp_b'][2], X_b, Y_b, Z_b)
@@ -535,7 +531,6 @@ def calcular_dd_ppk_lambda_epoca(sd_epoca, nav, X_b, Y_b, Z_b, tr, mask_angle, s
             L = []      
             W_diag = [] 
             
-            # [PARCHE APLICADO] Calcular topocéntricas del Rover dinámicamente dentro del bucle
             c_ref = {}
             for c, r_sat in ref_sats.items():
                 r_data = sat_positions[r_sat]
@@ -628,7 +623,6 @@ def calcular_dd_ppk_lambda_epoca(sd_epoca, nav, X_b, Y_b, Z_b, tr, mask_angle, s
 # =====================================================================
 # ESTADÍSTICAS Y FILTRADO VINCULANTE (HARD FILTER)
 # =====================================================================
-# [PARCHE APLICADO] Filtrado espacial Euclidiano acoplado para prevenir la destrucción y ceros en la matriz
 def estadistica_desacoplada(coordenadas, conf_plani, conf_alti, err_hor_max, err_ver_max):
     if not coordenadas: return None, None, None, 0, 0, 0, 0, 0.0
     
@@ -679,7 +673,6 @@ def estadistica_desacoplada(coordenadas, conf_plani, conf_alti, err_hor_max, err
 
     fix_ratio = (len(f_v) / len(final_coords)) * 100 if final_coords else 0.0
     
-    # Previene divisiones por cero devolviendo el centroide definitivo
     len_f = max(1, len(final_coords))
     return sum(N_f)/len_f, sum(E_f)/len_f, sum(Z_f)/len_f, N_s, E_s, Z_s, len(final_coords), fix_ratio
 
@@ -870,7 +863,6 @@ def tab3_calibrar():
     utm_e_r = safe_f(request.form.get('utm_este_r'), 0.0)
     utm_c_r = safe_f(request.form.get('utm_cota_r'), 0.0)
 
-    # [PARCHE APLICADO] Extracción de alturas de Antena para matriz ECEF
     h_b = safe_f(request.form.get('altura_base'), 0.0)
     h_r = safe_f(request.form.get('altura_rover'), 0.0)
 
@@ -903,7 +895,6 @@ def tab3_calibrar():
             t_sample = list(sd_suavizada.keys())
             lat_b, lon_b, _ = utm_a_geodesicas(utm_e, utm_n, utm_h, utm_hem)
             
-            # [PARCHE APLICADO] Inyección de Altura de Antena para evaluación contra el terreno
             X_b, Y_b, Z_b = geodesicas_a_ecef(lat_b, lon_b, utm_c + h_b)
 
             # =========================================================================
@@ -918,7 +909,6 @@ def tab3_calibrar():
                     X_ri, Y_ri, Z_ri = sem
                     la, lo, al = ecef_a_geodesicas(X_ri, Y_ri, Z_ri)
                     nt, et = geodesicas_a_utm(la, lo, utm_h)
-                    # [PARCHE APLICADO] Se descuenta h_r para comparar coordenada real en terreno
                     coords_raw.append((nt, et, al - h_r, status))
             
             if not coords_raw:
@@ -930,10 +920,18 @@ def tab3_calibrar():
             deltas_h.sort()
             deltas_v.sort()
             
-            # [CORRECCIÓN CRÍTICA] Incremento del percentil de evaluación y exclusión al 95% para evitar destrucción del lote
-            idx_optimo = max(1, int(len(deltas_h) * 0.95) - 1)
-            best_eh = max(0.01, float(deltas_h[idx_optimo]))
-            best_ev = max(0.01, float(deltas_v[idx_optimo]))
+            # [SOLUCIÓN ÓPTIMA] Estimador MAD (Median Absolute Deviation) para límites robustos
+            def get_mad(data):
+                if not data: return 0.0, 0.0
+                med = data[len(data)//2]
+                mad = sorted([abs(x - med) for x in data])[len(data)//2]
+                return med, mad
+
+            med_h, mad_h = get_mad(deltas_h)
+            med_v, mad_v = get_mad(deltas_v)
+            
+            best_eh = max(0.01, med_h + 3.0 * mad_h)
+            best_ev = max(0.01, med_v + 3.0 * mad_v)
             
             yield f"  [*] Límite Horizontal Inyectado: {best_eh:.14f} m\n"
             yield f"  [*] Límite Vertical Inyectado: {best_ev:.14f} m\n\n"
@@ -968,7 +966,6 @@ def tab3_calibrar():
             for nivel in range(6):
                 yield f"  [+] Refinando espacio de búsqueda (Zoom {nivel+1}/6)...\n"
                 
-                # [CORRECCIÓN CRÍTICA] Remoción del redondeo (truncamiento a 2 decimales) para liberar la interpolación a resolución máxima
                 m_grid = [max(5.0, min(15.0, x)) for x in [m_center - m_span, m_center, m_center + m_span]]
                 cp_grid = [max(0.1, min(5.0, x)) for x in [cp_center - cp_span, cp_center, cp_center + cp_span]]
                 ca_grid = [max(0.1, min(5.0, x)) for x in [ca_center - ca_span, ca_center, ca_center + ca_span]]
@@ -1011,8 +1008,16 @@ def tab3_calibrar():
                                     if res[0] is None: continue
                                     nf, ef, zf, std_n, std_e, std_z, ret, fix_ratio = res
                                     
+                                    # Ratio de retención de épocas
+                                    ret_ratio = ret / max(1, len(coords))
+                                    
+                                    # Ignorar configuraciones que destruyan más del 80% de la muestra (Evita el Overfitting)
+                                    if ret_ratio < 0.20: continue
+                                    
                                     rmse_3d = math.sqrt((nf - utm_n_r)**2 + (ef - utm_e_r)**2 + (zf - utm_c_r)**2)
-                                    score = rmse_3d * (1.0 + gap * 0.05)
+                                    
+                                    # Función de costo: RMSE pesado inversamente por la raíz cuadrada de la retención
+                                    score = rmse_3d * (1.0 + gap * 0.05) * (1.0 / math.sqrt(ret_ratio))
                                     
                                     if score < nivel_best_rmse:
                                         nivel_best_rmse = score
