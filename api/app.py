@@ -478,7 +478,7 @@ def aislar_diferencias_simples_ppk(obs_b, obs_r):
         if len(sd_epoca) > 1: sd_suavizada[tow] = sd_epoca
     return sd_suavizada
 
-def calcular_dd_ppk_lambda_epoca(sd_epoca, nav, X_b, Y_b, Z_b, tr, mask_angle):
+def calcular_dd_ppk_lambda_epoca(sd_epoca, nav, X_b, Y_b, Z_b, tr, mask_angle, snr_mask=25.0):
     try:
         X_iter, Y_iter, Z_iter = X_b, Y_b, Z_b 
         lat_b, lon_b, alt_b = ecef_a_geodesicas(X_b, Y_b, Z_b)
@@ -493,7 +493,7 @@ def calcular_dd_ppk_lambda_epoca(sd_epoca, nav, X_b, Y_b, Z_b, tr, mask_angle):
             sp = calcular_posicion_satelite_wgs84(seleccionar_efemeride_optima(nav.get(s), tr-tau), tr-tau, tau, s[0])
             if sp:
                 el_r, az_r = calcular_topocentricas(sp[0], sp[1], sp[2], X_iter, Y_iter, Z_iter)
-                if el_r >= mask_angle:
+                if el_r >= mask_angle and d.get('snr', 30.0) >= snr_mask:
                     sat_positions[s] = {'sp': sp, 'el': el_r, 'az': az_r, 'sd_P': d['sd_P'], 'snr': d.get('snr', 30.0)}
         
         if len(sat_positions) < 4: return None, "FAILED"
@@ -722,6 +722,8 @@ def generar_informe_ascii(tipo, p_dict):
   [-] Máscara Elevación      : {p_dict['mask']:.14f}°
   [-] Filtro Planimétrico    : {p_dict['cp']:.14f} Sigma
   [-] Filtro Altimétrico     : {p_dict['ca']:.14f} Sigma
+  [-] Tolerancia Sync        : {p_dict.get('max_gap', 0.5):.2f} s
+  [-] Máscara SNR            : {p_dict.get('snr', 25.0):.2f} dBHz
   [-] Épocas Útiles Retenidas: {p_dict['ret']} ({(p_dict['ret']/max(1, p_dict['total']))*100:.1f}% del total)
   [-] Varianza Global Z      : {p_dict['ez']:.3f} m
 
@@ -735,7 +737,7 @@ def generar_informe_ascii(tipo, p_dict):
 ------------------------------------------------------------------------
   [-] Motor Algorítmico      : Diferencias Dobles Pseudodistancia C1/C5
   [-] Resolución Matriz      : Ajuste IRLS Mínimos Cuadrados
-  [-] Sincronización Épocas  : Emparejamiento Dinámico Estricto (< 0.05s)
+  [-] Sincronización Épocas  : Emparejamiento Dinámico Estricto
 
 [3] CALIDAD GEOMÉTRICA (QA / QC)
 ------------------------------------------------------------------------
@@ -846,6 +848,9 @@ def tab3_calibrar():
     utm_e_r = safe_f(request.form.get('utm_este_r'), 0.0)
     utm_c_r = safe_f(request.form.get('utm_cota_r'), 0.0)
 
+    p_max_gap = safe_f(request.form.get('param_max_gap'), 0.5)
+    p_snr = safe_f(request.form.get('param_snr'), 25.0)
+
     def procesar():
         try:
             yield "> [SISTEMA] Iniciando Búsqueda Determinista (Investigación de Operaciones OR)...\n"
@@ -880,7 +885,7 @@ def tab3_calibrar():
             
             coords_raw = []
             for t in t_sample:
-                sem, status = calcular_dd_ppk_lambda_epoca(sd_suavizada[t], nav, X_b, Y_b, Z_b, t, 10.0)
+                sem, status = calcular_dd_ppk_lambda_epoca(sd_suavizada[t], nav, X_b, Y_b, Z_b, t, 10.0, p_snr)
                 if sem:
                     X_ri, Y_ri, Z_ri = sem
                     la, lo, al = ecef_a_geodesicas(X_ri, Y_ri, Z_ri)
@@ -934,7 +939,7 @@ def tab3_calibrar():
                 for m in set(m_grid):
                     coords = []
                     for t in t_sample:
-                        sem, status = calcular_dd_ppk_lambda_epoca(sd_suavizada[t], nav, X_b, Y_b, Z_b, t, m)
+                        sem, status = calcular_dd_ppk_lambda_epoca(sd_suavizada[t], nav, X_b, Y_b, Z_b, t, m, p_snr)
                         if sem:
                             X_ri, Y_ri, Z_ri = sem
                             la, lo, al = ecef_a_geodesicas(X_ri, Y_ri, Z_ri)
@@ -960,6 +965,7 @@ def tab3_calibrar():
                                 best_rmse = rmse_3d
                                 best_params = {
                                     'mask': m, 'cp': cp, 'ca': ca, 'eh': best_eh, 'ev': best_ev,
+                                    'max_gap': p_max_gap, 'snr': p_snr,
                                     'rmse': rmse_3d, 'ret': ret,
                                     'dn': nf - utm_n_r, 'de': ef - utm_e_r, 'dz': zf - utm_c_r
                                 }
@@ -972,6 +978,8 @@ def tab3_calibrar():
                 yield "\n========================================================\n"
                 yield "      [INFORME] PARÁMETROS ÓPTIMOS (CALIBRACIÓN OR)\n"
                 yield "========================================================\n"
+                yield f"  [-] Tolerancia Sync (max_gap): {best_params['max_gap']:.2f}\n"
+                yield f"  [-] Máscara SNR (dBHz): {best_params['snr']:.2f}\n"
                 yield f"  [-] Máscara Elevación (°): {best_params['mask']:.14f}\n"
                 yield f"  [-] Filtro Sigma Plan (cp): {best_params['cp']:.14f}\n"
                 yield f"  [-] Filtro Sigma Alt (ca): {best_params['ca']:.14f}\n"
@@ -1003,6 +1011,8 @@ def tab4_procesar():
     p_ca = safe_f(request.form.get('param_ca'), 1.5)
     err_hor_max = safe_f(request.form.get('err_hor_max'), 0.5)
     err_ver_max = safe_f(request.form.get('err_ver_max'), 0.5)
+    p_max_gap = safe_f(request.form.get('param_max_gap'), 0.5)
+    p_snr = safe_f(request.form.get('param_snr'), 25.0)
 
     rf_nuevo = request.files.get('obs_rover_nuevo')
     
@@ -1032,14 +1042,14 @@ def tab4_procesar():
             obs_r_raw = parse_rinex_obs_completo(p_r_nuevo) 
             nav = parse_rinex_nav_real(nav_path)
             
-            yield "[PROGRESO] Emparejamiento Temporal Dinámico contra la Base Pivote (Tolerancia 0.05s)...\n"
+            yield f"[PROGRESO] Emparejamiento Temporal Dinámico contra la Base Pivote (Tolerancia {p_max_gap}s)...\n"
             rover_tows = sorted(list(obs_r_raw.keys()))
             base_tows = sorted(list(obs_b_raw.keys()))
             obs_b_sync = {}
             for tr in rover_tows:
                 if not base_tows: continue
                 idx = min(range(len(base_tows)), key=lambda i: abs(base_tows[i] - tr))
-                if abs(base_tows[idx] - tr) <= 0.05:
+                if abs(base_tows[idx] - tr) <= p_max_gap:
                     obs_b_sync[tr] = obs_b_raw[base_tows[idx]].copy()
                     obs_b_sync[tr]['_meta'] = obs_r_raw[tr]['_meta']
             
@@ -1061,7 +1071,7 @@ def tab4_procesar():
                 if t_eps > 0 and c % max(1, t_eps // 10) == 0: 
                     yield f"[PROGRESO] Resolviendo Ecuaciones Matriciales DGPS... {int((c / t_eps) * 100)}%\n"
                 
-                sem, status = calcular_dd_ppk_lambda_epoca(sd_suavizada[t], nav, X_b, Y_b, Z_b, t, p_mask)
+                sem, status = calcular_dd_ppk_lambda_epoca(sd_suavizada[t], nav, X_b, Y_b, Z_b, t, p_mask, p_snr)
                 if not sem: continue
                 X_ri, Y_ri, Z_ri = sem
                 la, lo, al = ecef_a_geodesicas(X_ri, Y_ri, Z_ri)
@@ -1080,6 +1090,7 @@ def tab4_procesar():
             
             p_dict = {
                 'mask': p_mask, 'cp': p_cp, 'ca': p_ca,
+                'max_gap': p_max_gap, 'snr': p_snr,
                 'err_h': err_hor_max, 'err_v': err_ver_max,
                 'nf': nf, 'ef': ef, 'zf': zf - h_r, 
                 'ret': ret, 'total': len(coords), 'std_n': std_n, 'std_e': std_e, 'std_z': std_z,
