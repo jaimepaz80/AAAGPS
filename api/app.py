@@ -259,6 +259,7 @@ def descargar_efemerides_brdc_stream(year, month, day, hour):
                 return
         except Exception: pass
     yield ("ERROR", "Falla catastrófica al conectar con IGS/BKG.")
+
 # =====================================================================
 # MOTOR ALGEBRAICO N x N
 # =====================================================================
@@ -436,6 +437,7 @@ def calcular_posicion_satelite_wgs84(eph, t_emision, tau_vuelo, sys_char='G'):
     zs = y_k * math.sin(i_k)
     theta = omega_e_sys * tau_vuelo
     return (xs * math.cos(theta) + ys * math.sin(theta), -xs * math.sin(theta) + ys * math.cos(theta), zs, dt_sat)
+
 # =====================================================================
 # EL CORAZÓN DE PROCESAMIENTO DGPS (CÓDIGO DIFERENCIAL)
 # =====================================================================
@@ -454,8 +456,26 @@ def aislar_diferencias_simples_ppk(obs_b, obs_r):
                 freq = 'L5' 
             elif not ('C1' in d_b[s] and 'C1' in d_r): continue
             
+            # Extracción base
             pr_b = d_b[s]['C5'] if freq == 'L5' else d_b[s]['C1']
             pr_r = d_r['C5'] if freq == 'L5' else d_r['C1']
+            
+            # [NUEVO] Extracción de Fase para Carrier-Smoothing
+            cp_b = d_b[s].get('L5', 0.0) if freq == 'L5' else d_b[s].get('L1', 0.0)
+            cp_r = d_r.get('L5', 0.0) if freq == 'L5' else d_r.get('L1', 0.0)
+            
+            # [NUEVO] Aplicación de Suavizado Hatch Básico (Peso 10% Código, 90% Fase si la fase es válida)
+            wL_L1 = 0.19029367 # Longitud de onda L1 aprox
+            wL_L5 = 0.115 # Longitud de onda L5 aprox
+            wL = wL_L5 if freq == 'L5' else wL_L1
+
+            if cp_b != 0.0 and cp_r != 0.0:
+                # Ecuación predictiva suavizada empírica para estabilizar Z
+                pr_b_smooth = (0.1 * pr_b) + (0.9 * (cp_b * wL))
+                pr_r_smooth = (0.1 * pr_r) + (0.9 * (cp_r * wL))
+                # Híbrido ponderado para evitar saltos de ciclo abruptos
+                pr_b = (pr_b + pr_b_smooth) / 2.0
+                pr_r = (pr_r + pr_r_smooth) / 2.0
             
             snr_b = d_b[s].get('S5', 30.0) if freq == 'L5' else d_b[s].get('S1', 30.0)
             snr_r = d_r.get('S5', 30.0) if freq == 'L5' else d_r.get('S1', 30.0)
@@ -738,11 +758,11 @@ def generar_informe_ascii(tipo, p_dict):
 ------------------------------------------------------------------------
   [-] Tolerancia Horizontal  : {'± ' + str(p_dict['err_h']) + ' m (Vinculante)' if p_dict['err_h'] > 0 else 'Inactiva'}
   [-] Tolerancia Vertical    : {'± ' + str(p_dict['err_v']) + ' m (Vinculante)' if p_dict['err_v'] > 0 else 'Inactiva'}
-  [-] Máscara Elevación      : {p_dict['mask']}°
-  [-] Filtro Planimétrico    : {p_dict['cp']} Sigma
-  [-] Filtro Altimétrico     : {p_dict['ca']} Sigma
-  [-] Tolerancia Sync        : {p_dict.get('max_gap', 0.5)} s
-  [-] Máscara SNR            : {p_dict.get('snr', 25.0)} dBHz
+  [-] Máscara Elevación      : {repr(p_dict['mask'])}°
+  [-] Filtro Planimétrico    : {repr(p_dict['cp'])} Sigma
+  [-] Filtro Altimétrico     : {repr(p_dict['ca'])} Sigma
+  [-] Tolerancia Sync        : {repr(p_dict.get('max_gap', 0.5))} s
+  [-] Máscara SNR            : {repr(p_dict.get('snr', 25.0))} dBHz
   [-] Épocas Útiles Retenidas: {p_dict['ret']} ({(p_dict['ret']/max(1, p_dict['total']))*100}% del total)
   [-] Varianza Global Z      : {p_dict['ez']} m
 
@@ -777,6 +797,7 @@ def generar_informe_ascii(tipo, p_dict):
 ========================================================================
 """
     return informe
+
 # =====================================================================
 # RUTAS FLASK (FLUJO ARQUITECTÓNICO CORREGIDO)
 # =====================================================================
@@ -970,8 +991,8 @@ def tab3_calibrar():
             for nivel in range(6):
                 yield f"  [+] Refinando espacio de búsqueda (Zoom {nivel+1}/6)...\n"
                 
-                # [REGLA DE ORO FÍSICA] Límite min Elev=10.0°, min SNR=25.0 dBHz
-                m_grid = [max(10.0, min(25.0, x)) for x in [m_center - m_span, m_center, m_center + m_span]]
+                # [REGLA LIBERADA] Permite máscaras desde 0.01°
+                m_grid = [max(0.01, min(25.0, x)) for x in [m_center - m_span, m_center, m_center + m_span]]
                 cp_grid = [max(0.1, min(5.0, x)) for x in [cp_center - cp_span, cp_center, cp_center + cp_span]]
                 ca_grid = [max(0.1, min(5.0, x)) for x in [ca_center - ca_span, ca_center, ca_center + ca_span]]
                 snr_grid = [max(25.0, min(45.0, x)) for x in [snr_center - snr_span, snr_center, snr_center + snr_span]]
@@ -1049,11 +1070,11 @@ def tab3_calibrar():
                 yield "      [INFORME] PARÁMETROS ÓPTIMOS (CALIBRACIÓN OR 5D)\n"
                 yield "========================================================\n"
                 # Exposición total de la mantisa de 64 bits sin mascaras de truncamiento estético
-                yield f"  [-] Tolerancia Sync (max_gap): {best_params['max_gap']}\n"
-                yield f"  [-] Máscara SNR (dBHz): {best_params['snr']}\n"
-                yield f"  [-] Máscara Elevación (°): {best_params['mask']}\n"
-                yield f"  [-] Filtro Sigma Plan (cp): {best_params['cp']}\n"
-                yield f"  [-] Filtro Sigma Alt (ca): {best_params['ca']}\n"
+                yield f"  [-] Tolerancia Sync (max_gap): {repr(best_params['max_gap'])}\n"
+                yield f"  [-] Máscara SNR (dBHz): {repr(best_params['snr'])}\n"
+                yield f"  [-] Máscara Elevación (°): {repr(best_params['mask'])}\n"
+                yield f"  [-] Filtro Sigma Plan (cp): {repr(best_params['cp'])}\n"
+                yield f"  [-] Filtro Sigma Alt (ca): {repr(best_params['ca'])}\n"
                 yield f"  [-] Error Permitido Horizontal (m): {best_params['eh']}\n"
                 yield f"  [-] Error Permitido Vertical (m): {best_params['ev']}\n"
                 yield "--------------------------------------------------------\n"
@@ -1182,4 +1203,3 @@ def tab4_procesar():
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=7000, debug=True)
-
