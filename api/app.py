@@ -175,6 +175,7 @@ def generar_rinex_sincronizado(raw_path, out_path, obs_dict):
                 l1 = obs_dict[tow][sat].get('L1', 0.0)
                 c5 = obs_dict[tow][sat].get('C5', 0.0)
                 l5 = obs_dict[tow][sat].get('L5', 0.0)
+                # Formateo interno crudo para el archivo de salida
                 c1_s = f"{c1:14.3f}" if c1 > 0 else "              "
                 l1_s = f"{l1:14.3f}" if l1 > 0 else "              "
                 c5_s = f"{c5:14.3f}" if c5 > 0 else "              "
@@ -258,7 +259,6 @@ def descargar_efemerides_brdc_stream(year, month, day, hour):
                 return
         except Exception: pass
     yield ("ERROR", "Falla catastrófica al conectar con IGS/BKG.")
-
 # =====================================================================
 # MOTOR ALGEBRAICO N x N
 # =====================================================================
@@ -619,6 +619,188 @@ def calcular_dd_ppk_lambda_epoca(sd_epoca, nav, X_b, Y_b, Z_b, tr, mask_angle, s
         return (X_iter, Y_iter, Z_iter), "FLOAT"
     except Exception as e:
         return None, f"FAILED_EXCEPTION:_{str(e)}"
+# =====================================================================
+# EL CORAZÓN DE PROCESAMIENTO DGPS (CÓDIGO DIFERENCIAL)
+# =====================================================================
+def aislar_diferencias_simples_ppk(obs_b, obs_r):
+    sd_suavizada = {}
+    for tow in sorted(list(obs_r.keys())):
+        if tow not in obs_b: continue
+        
+        sd_epoca = {'_meta': obs_r[tow]['_meta']}
+        for s, d_r in obs_r[tow].items():
+            if s == '_meta' or s not in obs_b[tow]: continue
+            d_b = obs_b[tow]
+            
+            freq = 'L1' 
+            if 'C5' in d_b[s] and 'C5' in d_r and 'L5' in d_b[s] and 'L5' in d_r:
+                freq = 'L5' 
+            elif not ('C1' in d_b[s] and 'C1' in d_r): continue
+            
+            pr_b = d_b[s]['C5'] if freq == 'L5' else d_b[s]['C1']
+            pr_r = d_r['C5'] if freq == 'L5' else d_r['C1']
+            
+            snr_b = d_b[s].get('S5', 30.0) if freq == 'L5' else d_b[s].get('S1', 30.0)
+            snr_r = d_r.get('S5', 30.0) if freq == 'L5' else d_r.get('S1', 30.0)
+            
+            sd_P = pr_r - pr_b
+            
+            sd_epoca[s] = {
+                'sd_P': sd_P,
+                'pr_b': pr_b, 'pr_r': pr_r,
+                'snr': min(snr_b, snr_r)
+            }
+        if len(sd_epoca) > 1: sd_suavizada[tow] = sd_epoca
+    return sd_suavizada
+
+def calcular_dd_ppk_lambda_epoca(sd_epoca, nav, X_b, Y_b, Z_b, tr, mask_angle, snr_mask=25.0):
+    try:
+        X_iter, Y_iter, Z_iter = X_b, Y_b, Z_b 
+        lat_b, lon_b, alt_b = ecef_a_geodesicas(X_b, Y_b, Z_b)
+        
+        iono = nav.get('_iono', {'alpha': [0]*4, 'beta': [0]*4})
+        alpha, beta = iono['alpha'], iono['beta']
+        
+        sat_positions = {}
+        for s, d in sd_epoca.items():
+            if s == '_meta' or d['sd_P'] is None: continue 
+            tau_r = d['pr_r'] / C_LIGHT
+            tau_b = d['pr_b'] / C_LIGHT
+            
+            sp_r = calcular_posicion_satelite_wgs84(seleccionar_efemeride_optima(nav.get(s), tr-tau_r), tr-tau_r, tau_r, s[0])
+            sp_b = calcular_posicion_satelite_wgs84(seleccionar_efemeride_optima(nav.get(s), tr-tau_b), tr-tau_b, tau_b, s[0])
+            
+            if sp_r and sp_b:
+                el_r, az_r = calcular_topocentricas(sp_r[0], sp_r[1], sp_r[2], X_iter, Y_iter, Z_iter)
+                if el_r >= mask_angle and d.get('snr', 30.0) >= snr_mask:
+                    sat_positions[s] = {'sp_r': sp_r, 'sp_b': sp_b, 'sd_P': d['sd_P'], 'snr': d.get('snr', 30.0)}
+        
+        if len(sat_positions) < 4: return None, "FAILED"
+        
+        sat_list_full = list(sat_positions.keys())
+        constellations = set([s[0] for s in sat_list_full])
+        ref_sats = {}
+        sat_list = []
+        
+        for c in constellations:
+            c_sats = [s for s in sat_list_full if s[0] == c]
+            if len(c_sats) >= 2:
+                r_candidate = max(c_sats, key=lambda k: calcular_topocentricas(sat_positions[k]['sp_r'][0], sat_positions[k]['sp_r'][1], sat_positions[k]['sp_r'][2], X_iter, Y_iter, Z_iter)[0])
+                ref_sats[c] = r_candidate
+                c_sats.remove(ref_sats[c])
+                sat_list.extend(c_sats)
+        
+        if len(sat_list) < 3: return None, "FAILED" 
+        
+        def calc_rho(sp, X, Y, Z, lat, lon, alt, el, az):
+            dist = math.sqrt((sp[0]-X)**2 + (sp[1]-Y)**2 + (sp[2]-Z)**2)
+            tropo = calcular_saastamoinen(lat, alt, el)
+            iono_m = calcular_klobuchar(lat, lon, el, az, tr, alpha, beta)
+            return dist + tropo, iono_m, dist
+
+        base_calcs = {}
+        for s, data in sat_positions.items():
+            el_b, az_b = calcular_topocentricas(data['sp_b'][0], data['sp_b'][1], data['sp_b'][2], X_b, Y_b, Z_b)
+            rho_b, iono_b, dist_b = calc_rho(data['sp_b'], X_b, Y_b, Z_b, lat_b, lon_b, alt_b, el_b, az_b)
+            base_calcs[s] = rho_b + iono_b
+
+        prev_residuals = [0.0] * len(sat_list)
+
+        for iteracion in range(8):
+            lat_it, lon_it, alt_it = ecef_a_geodesicas(X_iter, Y_iter, Z_iter)
+            
+            H = []      
+            L = []      
+            W_diag = [] 
+            
+            c_ref = {}
+            for c, r_sat in ref_sats.items():
+                r_data = sat_positions[r_sat]
+                el_r, az_r = calcular_topocentricas(r_data['sp_r'][0], r_data['sp_r'][1], r_data['sp_r'][2], X_iter, Y_iter, Z_iter)
+                rho_r, iono_r, dist_r = calc_rho(r_data['sp_r'], X_iter, Y_iter, Z_iter, lat_it, lon_it, alt_it, el_r, az_r)
+                
+                SD_P_calc_ref = (rho_r + iono_r) - base_calcs[r_sat]
+                c_ref[c] = {
+                    'dist_r': dist_r,
+                    'SD_P_calc_ref': SD_P_calc_ref,
+                    'sp_r': r_data['sp_r'],
+                    'el_r': el_r,
+                    'snr': r_data['snr'],
+                    'sd_P': r_data['sd_P']
+                }
+            
+            res_idx = 0
+            for i, s in enumerate(sat_list):
+                c = s[0]
+                data = sat_positions[s]
+                rc = c_ref[c]
+                
+                el_i_r, az_i_r = calcular_topocentricas(data['sp_r'][0], data['sp_r'][1], data['sp_r'][2], X_iter, Y_iter, Z_iter)
+                rho_i_r, iono_i_r, dist_i_r = calc_rho(data['sp_r'], X_iter, Y_iter, Z_iter, lat_it, lon_it, alt_it, el_i_r, az_i_r)
+                
+                SD_P_calc_i = (rho_i_r + iono_i_r) - base_calcs[s]
+                DD_P_calc = SD_P_calc_i - rc['SD_P_calc_ref']
+                
+                dx_geom = [
+                    -(data['sp_r'][0] - X_iter) / dist_i_r - (-(rc['sp_r'][0] - X_iter) / rc['dist_r']),
+                    -(data['sp_r'][1] - Y_iter) / dist_i_r - (-(rc['sp_r'][1] - Y_iter) / rc['dist_r']),
+                    -(data['sp_r'][2] - Z_iter) / dist_i_r - (-(rc['sp_r'][2] - Z_iter) / rc['dist_r'])
+                ]
+                
+                sin_el_i_sq = math.sin(math.radians(el_i_r))**2
+                sin_el_ref_sq = math.sin(math.radians(rc['el_r']))**2
+                snr_i_pow = 10.0 ** (data['snr'] / 10.0)
+                snr_ref_pow = 10.0 ** (rc['snr'] / 10.0)
+                
+                w_i_ref = (sin_el_i_sq * snr_i_pow * sin_el_ref_sq * snr_ref_pow) / max(1.0, (sin_el_i_sq * snr_i_pow) + (sin_el_ref_sq * snr_ref_pow))
+
+                DD_P_obs = data['sd_P'] - rc['sd_P']
+                res_P = DD_P_obs - DD_P_calc
+                
+                L.append([res_P])
+                H.append(dx_geom)
+                
+                if iteracion == 0:
+                    w_P = w_i_ref * 1.0
+                else:
+                    w_P = w_i_ref * 1.0 / max(1.0, abs(prev_residuals[res_idx]) / 2.0)
+                W_diag.append(w_P)
+                res_idx += 1
+
+            H_T = transpose_matrix(H)
+            if not H_T or not W_diag: return None, "FAILED" 
+            
+            try:
+                H_T_W = [[H_T[r][idx] * W_diag[idx] for idx in range(len(W_diag))] for r in range(len(H_T))]
+            except IndexError:
+                return None, "FAILED"
+
+            N_mat = matmul(H_T_W, H)
+            
+            for r in range(len(N_mat)):
+                N_mat[r][r] += abs(N_mat[r][r]) * 1e-6 + 1e-6
+                
+            U_vec = matmul(H_T_W, L)
+            
+            Q = invert_matrix_nxn(N_mat)
+            if not Q: return None, "FAILED"
+            
+            Delta_X = matmul(Q, U_vec)
+            if not Delta_X or len(Delta_X) < 3 or not Delta_X[0]: return None, "FAILED" 
+
+            X_iter += Delta_X[0][0]; Y_iter += Delta_X[1][0]; Z_iter += Delta_X[2][0]
+                
+            prev_residuals = []
+            for r in range(len(H)):
+                v_val = sum(H[r][idx] * Delta_X[idx][0] for idx in range(len(H[0]))) - L[r][0]
+                prev_residuals.append(v_val)
+            
+            if max(abs(Delta_X[0][0]), abs(Delta_X[1][0]), abs(Delta_X[2][0])) < 1e-3:
+                return (X_iter, Y_iter, Z_iter), "FLOAT"
+                
+        return (X_iter, Y_iter, Z_iter), "FLOAT"
+    except Exception as e:
+        return None, f"FAILED_EXCEPTION:_{str(e)}"
 
 # =====================================================================
 # ESTADÍSTICAS Y FILTRADO VINCULANTE (HARD FILTER)
@@ -703,10 +885,10 @@ def generar_informe_homogeneizacion_detallado(base_name, rover_name, base_raw, r
     cs, es, s_ini, s_fin, tr_s, _ = get_stats(rover_sinc)
     t_exito = (es / er * 100) if er > 0 else 0.0
     
-    b_ini_str = f"{b_ini[3]:02d}:{b_ini[4]:02d}:{b_ini[5]:05.2f}" if b_ini else "N/A"
-    b_fin_str = f"{b_fin[3]:02d}:{b_fin[4]:02d}:{b_fin[5]:05.2f}" if b_fin else "N/A"
-    r_ini_str = f"{r_ini[3]:02d}:{r_ini[4]:02d}:{r_ini[5]:05.2f}" if r_ini else "N/A"
-    r_fin_str = f"{r_fin[3]:02d}:{r_fin[4]:02d}:{r_fin[5]:05.2f}" if r_fin else "N/A"
+    b_ini_str = f"{b_ini[3]:02d}:{b_ini[4]:02d}:{b_ini[5]}" if b_ini else "N/A"
+    b_fin_str = f"{b_fin[3]:02d}:{b_fin[4]:02d}:{b_fin[5]}" if b_fin else "N/A"
+    r_ini_str = f"{r_ini[3]:02d}:{r_ini[4]:02d}:{r_ini[5]}" if r_ini else "N/A"
+    r_fin_str = f"{r_fin[3]:02d}:{r_fin[4]:02d}:{r_fin[5]}" if r_fin else "N/A"
     
     informe = f"""
 ========================================================================
@@ -722,7 +904,7 @@ def generar_informe_homogeneizacion_detallado(base_name, rover_name, base_raw, r
 
 [3] MATRIZ RESULTANTE (ESTRICTA, SIN INTERPOLACIÓN)
   [-] Épocas Útiles Sincronizadas: {es}
-  [-] Tasa de Éxito sobre Rover  : {t_exito:.1f}%
+  [-] Tasa de Éxito sobre Rover  : {t_exito}%
 ========================================================================
 """
     return informe
@@ -738,13 +920,13 @@ def generar_informe_ascii(tipo, p_dict):
 ------------------------------------------------------------------------
   [-] Tolerancia Horizontal  : {'± ' + str(p_dict['err_h']) + ' m (Vinculante)' if p_dict['err_h'] > 0 else 'Inactiva'}
   [-] Tolerancia Vertical    : {'± ' + str(p_dict['err_v']) + ' m (Vinculante)' if p_dict['err_v'] > 0 else 'Inactiva'}
-  [-] Máscara Elevación      : {p_dict['mask']:.14f}°
-  [-] Filtro Planimétrico    : {p_dict['cp']:.14f} Sigma
-  [-] Filtro Altimétrico     : {p_dict['ca']:.14f} Sigma
-  [-] Tolerancia Sync        : {p_dict.get('max_gap', 0.5):.2f} s
-  [-] Máscara SNR            : {p_dict.get('snr', 25.0):.2f} dBHz
-  [-] Épocas Útiles Retenidas: {p_dict['ret']} ({(p_dict['ret']/max(1, p_dict['total']))*100:.1f}% del total)
-  [-] Varianza Global Z      : {p_dict['ez']:.3f} m
+  [-] Máscara Elevación      : {p_dict['mask']}°
+  [-] Filtro Planimétrico    : {p_dict['cp']} Sigma
+  [-] Filtro Altimétrico     : {p_dict['ca']} Sigma
+  [-] Tolerancia Sync        : {p_dict.get('max_gap', 0.5)} s
+  [-] Máscara SNR            : {p_dict.get('snr', 25.0)} dBHz
+  [-] Épocas Útiles Retenidas: {p_dict['ret']} ({(p_dict['ret']/max(1, p_dict['total']))*100}% del total)
+  [-] Varianza Global Z      : {p_dict['ez']} m
 
 [1] TRAZABILIDAD DEL PROYECTO Y ARCHIVOS
 ------------------------------------------------------------------------
@@ -760,24 +942,23 @@ def generar_informe_ascii(tipo, p_dict):
 
 [3] CALIDAD GEOMÉTRICA (QA / QC)
 ------------------------------------------------------------------------
-  [-] Error Horizontal (RMS) : ± {math.hypot(p_dict['std_n'], p_dict['std_e']):.3f} m
-  [-] Error Espacial (3D RMS): ± {math.sqrt(p_dict['std_n']**2 + p_dict['std_e']**2 + p_dict['std_z']**2):.3f} m
+  [-] Error Horizontal (RMS) : ± {math.hypot(p_dict['std_n'], p_dict['std_e'])} m
+  [-] Error Espacial (3D RMS): ± {math.sqrt(p_dict['std_n']**2 + p_dict['std_e']**2 + p_dict['std_z']**2)} m
 
 [4] RESULTADOS VECTORIALES FINALES
 ------------------------------------------------------------------------
   * COORDENADA DE CONTROL (BASE FIJA):
-      Norte : {p_dict['b_n']:.3f} m
-      Este  : {p_dict['b_e']:.3f} m
-      Cota  : {p_dict['b_z']:.3f} m
+      Norte : {p_dict['b_n']} m
+      Este  : {p_dict['b_e']} m
+      Cota  : {p_dict['b_z']} m
 
   * COORDENADA CALCULADA (AJUSTE IRLS DGPS {estado_sol}):
-      Norte : {p_dict['r_n_calc']:.3f} m
-      Este  : {p_dict['r_e_calc']:.3f} m
-      Cota  : {p_dict['r_z_calc']:.3f} m
+      Norte : {p_dict['r_n_calc']} m
+      Este  : {p_dict['r_e_calc']} m
+      Cota  : {p_dict['r_z_calc']} m
 ========================================================================
 """
     return informe
-
 # =====================================================================
 # RUTAS FLASK (FLUJO ARQUITECTÓNICO CORREGIDO)
 # =====================================================================
@@ -937,8 +1118,9 @@ def tab3_calibrar():
             best_eh = max(0.01, med_h + 3.0 * mad_h)
             best_ev = max(0.01, med_v + 3.0 * mad_v)
             
-            yield f"  [*] Límite Horizontal Inyectado: {best_eh:.14f} m\n"
-            yield f"  [*] Límite Vertical Inyectado: {best_ev:.14f} m\n\n"
+            # Sin truncamiento de decimales, muestra la resolución cruda inyectada
+            yield f"  [*] Límite Horizontal Inyectado: {best_eh} m\n"
+            yield f"  [*] Límite Vertical Inyectado: {best_ev} m\n\n"
             
             # =========================================================================
             # FASE 2: MALLA PENTADIMENSIONAL (M, Cp, Ca, SNR, Gap)
@@ -970,7 +1152,7 @@ def tab3_calibrar():
             for nivel in range(6):
                 yield f"  [+] Refinando espacio de búsqueda (Zoom {nivel+1}/6)...\n"
                 
-                # [REGLA DE ORO FÍSICA] Prohibido evaluar máscaras basura. Límite min Elev=10.0°, min SNR=25.0 dBHz
+                # [REGLA DE ORO FÍSICA] Límite min Elev=10.0°, min SNR=25.0 dBHz
                 m_grid = [max(10.0, min(25.0, x)) for x in [m_center - m_span, m_center, m_center + m_span]]
                 cp_grid = [max(0.1, min(5.0, x)) for x in [cp_center - cp_span, cp_center, cp_center + cp_span]]
                 ca_grid = [max(0.1, min(5.0, x)) for x in [ca_center - ca_span, ca_center, ca_center + ca_span]]
@@ -1016,15 +1198,13 @@ def tab3_calibrar():
                                     # Ratio de retención de épocas
                                     ret_ratio = ret / max(1, len(coords))
                                     
-                                    # Garantizar significancia estadística pura: Mínimo 15 épocas o 5% del lote, lo que sea mayor
+                                    # Garantizar significancia estadística pura: Mínimo 15 épocas o 5% del lote
                                     min_epochs = max(15, int(len(coords) * 0.05))
                                     if ret < min_epochs: continue
                                     
                                     rmse_3d = math.sqrt((nf - utm_n_r)**2 + (ef - utm_e_r)**2 + (zf - utm_c_r)**2)
                                     
-                                    # [IO ÓPTIMA] Función de Costo CÚBICA. 
-                                    # Un error de 2m genera un costo de 8. Un error de 0.2m genera un costo de 0.008.
-                                    # Obliga al Descenso de Gradiente a cazar la precisión decimétrica.
+                                    # [IO ÓPTIMA] Función de Costo CÚBICA para cazar precisión decimétrica/centimétrica.
                                     score = (rmse_3d ** 3) * (1.0 + gap * 0.05) * (1.0 + (1.0 - ret_ratio) * 0.10)
                                     
                                     if score < nivel_best_rmse:
@@ -1050,16 +1230,17 @@ def tab3_calibrar():
                 yield "\n========================================================\n"
                 yield "      [INFORME] PARÁMETROS ÓPTIMOS (CALIBRACIÓN OR 5D)\n"
                 yield "========================================================\n"
-                yield f"  [-] Tolerancia Sync (max_gap): {best_params['max_gap']:.2f}\n"
-                yield f"  [-] Máscara SNR (dBHz): {best_params['snr']:.2f}\n"
-                yield f"  [-] Máscara Elevación (°): {best_params['mask']:.14f}\n"
-                yield f"  [-] Filtro Sigma Plan (cp): {best_params['cp']:.14f}\n"
-                yield f"  [-] Filtro Sigma Alt (ca): {best_params['ca']:.14f}\n"
-                yield f"  [-] Error Permitido Horizontal (m): {best_params['eh']:.14f}\n"
-                yield f"  [-] Error Permitido Vertical (m): {best_params['ev']:.14f}\n"
+                # Exposición total de la mantisa de 64 bits sin mascaras de truncamiento estético
+                yield f"  [-] Tolerancia Sync (max_gap): {best_params['max_gap']}\n"
+                yield f"  [-] Máscara SNR (dBHz): {best_params['snr']}\n"
+                yield f"  [-] Máscara Elevación (°): {best_params['mask']}\n"
+                yield f"  [-] Filtro Sigma Plan (cp): {best_params['cp']}\n"
+                yield f"  [-] Filtro Sigma Alt (ca): {best_params['ca']}\n"
+                yield f"  [-] Error Permitido Horizontal (m): {best_params['eh']}\n"
+                yield f"  [-] Error Permitido Vertical (m): {best_params['ev']}\n"
                 yield "--------------------------------------------------------\n"
-                yield f"  [*] RMSE Global 3D al Punto: {best_params['rmse']:.4f} m\n"
-                yield f"  [*] Deltas Residuales -> N: {best_params['dn']:.3f}m, E: {best_params['de']:.3f}m, Z: {best_params['dz']:.3f}m\n"
+                yield f"  [*] RMSE Global 3D al Punto: {best_params['rmse']} m\n"
+                yield f"  [*] Deltas Residuales -> N: {best_params['dn']}m, E: {best_params['de']}m, Z: {best_params['dz']}m\n"
                 yield f"  [*] Épocas Retenidas: {best_params['ret']}\n"
                 yield "========================================================\n"
                 yield "\n[SUCCESS]"
@@ -1160,6 +1341,7 @@ def tab4_procesar():
                 
             nf, ef, zf, std_n, std_e, std_z, ret, fix_ratio = res_estadistica
             
+            # Restauración de Matriz Pura (Sin vector de traslación forzado)
             p_dict = {
                 'mask': p_mask, 'cp': p_cp, 'ca': p_ca,
                 'max_gap': p_max_gap, 'snr': p_snr,
@@ -1182,4 +1364,3 @@ def tab4_procesar():
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=7000, debug=True)
-
