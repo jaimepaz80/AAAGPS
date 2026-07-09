@@ -593,10 +593,6 @@ def calcular_dd_ppk_lambda_epoca(sd_epoca, nav, X_b, Y_b, Z_b, tr, mask_angle, s
                 return None, "FAILED"
 
             N_mat = matmul(H_T_W, H)
-            
-            for r in range(len(N_mat)):
-                N_mat[r][r] += abs(N_mat[r][r]) * 1e-6 + 1e-6
-                
             U_vec = matmul(H_T_W, L)
             
             Q = invert_matrix_nxn(N_mat)
@@ -624,23 +620,6 @@ def calcular_dd_ppk_lambda_epoca(sd_epoca, nav, X_b, Y_b, Z_b, tr, mask_angle, s
 # =====================================================================
 def estadistica_desacoplada(coordenadas, conf_plani, conf_alti, err_hor_max, err_ver_max):
     if not coordenadas: return None, None, None, 0, 0, 0, 0, 0.0
-
-    # --- NUEVA PROPUESTA DE SOLUCIÓN: FILTRADO SUAVIZADO (Media Móvil Espacial) ---
-    # Suaviza el ruido crudo de pseudodistancia antes del análisis de varianza
-    if len(coordenadas) >= 5:
-        coords_suavizadas = []
-        for i in range(len(coordenadas)):
-            inicio = max(0, i - 2)
-            fin = min(len(coordenadas), i + 3)
-            ventana = coordenadas[inicio:fin]
-            n_avg = sum(c[0] for c in ventana) / len(ventana)
-            e_avg = sum(c[1] for c in ventana) / len(ventana)
-            z_avg = sum(c[2] for c in ventana) / len(ventana)
-            # Preservar status original
-            status = coordenadas[i][3] if len(coordenadas[i]) > 3 else "FLOAT"
-            coords_suavizadas.append((n_avg, e_avg, z_avg, status))
-        coordenadas = coords_suavizadas
-    # -------------------------------------------------------------------------------
 
     N_list = [c[0] for c in coordenadas]
     E_list = [c[1] for c in coordenadas]
