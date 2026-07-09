@@ -129,7 +129,16 @@ def parse_rinex_obs_completo(path):
                     v = line[3+16*idx_s5 : 17+16*idx_s5].strip()
                     if v: data['S5'] = float(v.replace('D', 'E').replace('d', 'e'))
                 
-                if ('C1' in data and data['C1'] > 15000000.0) or ('C5' in data and data['C5'] > 15000000.0):
+                # --- INGENIERÍA DEFENSIVA: AUDITOR DE FASE Y MONOFRECUENCIA ---
+                valid_l1 = 'C1' in data and data['C1'] > 15000000.0 and 'L1' in data and data['L1'] != 0.0
+                valid_l5 = 'C5' in data and data['C5'] > 15000000.0 and 'L5' in data and data['L5'] != 0.0
+                
+                if valid_l1 or valid_l5:
+                    if not valid_l1:
+                        data.pop('C1', None); data.pop('L1', None); data.pop('S1', None)
+                    if not valid_l5:
+                        data.pop('C5', None); data.pop('L5', None); data.pop('S5', None)
+                        
                     obs.setdefault(tow, {})[line[0:3].strip()] = data
     return obs
 
@@ -259,6 +268,7 @@ def descargar_efemerides_brdc_stream(year, month, day, hour):
                 return
         except Exception: pass
     yield ("ERROR", "Falla catastrófica al conectar con IGS/BKG.")
+
 # =====================================================================
 # MOTOR ALGEBRAICO N x N
 # =====================================================================
@@ -436,6 +446,7 @@ def calcular_posicion_satelite_wgs84(eph, t_emision, tau_vuelo, sys_char='G'):
     zs = y_k * math.sin(i_k)
     theta = omega_e_sys * tau_vuelo
     return (xs * math.cos(theta) + ys * math.sin(theta), -xs * math.sin(theta) + ys * math.cos(theta), zs, dt_sat)
+
 # =====================================================================
 # EL CORAZÓN DE PROCESAMIENTO DGPS (CÓDIGO DIFERENCIAL)
 # =====================================================================
@@ -449,10 +460,19 @@ def aislar_diferencias_simples_ppk(obs_b, obs_r):
             if s == '_meta' or s not in obs_b[tow]: continue
             d_b = obs_b[tow]
             
-            freq = 'L1' 
-            if 'C5' in d_b[s] and 'C5' in d_r and 'L5' in d_b[s] and 'L5' in d_r:
+            # --- FILTRO LÓGICO ESTRICTO: EXIGIR FASE Y CÓDIGO ---
+            valid_b_L1 = 'C1' in d_b[s] and 'L1' in d_b[s]
+            valid_r_L1 = 'C1' in d_r and 'L1' in d_r
+            valid_b_L5 = 'C5' in d_b[s] and 'L5' in d_b[s]
+            valid_r_L5 = 'C5' in d_r and 'L5' in d_r
+            
+            freq = None 
+            if valid_b_L5 and valid_r_L5:
                 freq = 'L5' 
-            elif not ('C1' in d_b[s] and 'C1' in d_r): continue
+            elif valid_b_L1 and valid_r_L1:
+                freq = 'L1'
+            else:
+                continue
             
             pr_b = d_b[s]['C5'] if freq == 'L5' else d_b[s]['C1']
             pr_r = d_r['C5'] if freq == 'L5' else d_r['C1']
@@ -969,7 +989,6 @@ def tab3_calibrar():
             for nivel in range(6):
                 yield f"  [+] Refinando espacio de búsqueda (Zoom {nivel+1}/6)...\n"
                 
-                # Se elimina el límite rígido inferior de 10.0. Ahora soporta desde 1.0 grado libremente.
                 m_grid = [max(1.0, min(25.0, x)) for x in [m_center - m_span, m_center, m_center + m_span]]
                 cp_grid = [max(0.1, min(5.0, x)) for x in [cp_center - cp_span, cp_center, cp_center + cp_span]]
                 ca_grid = [max(0.1, min(5.0, x)) for x in [ca_center - ca_span, ca_center, ca_center + ca_span]]
