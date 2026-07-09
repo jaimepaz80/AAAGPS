@@ -259,7 +259,6 @@ def descargar_efemerides_brdc_stream(year, month, day, hour):
                 return
         except Exception: pass
     yield ("ERROR", "Falla catastrófica al conectar con IGS/BKG.")
-
 # =====================================================================
 # MOTOR ALGEBRAICO N x N
 # =====================================================================
@@ -437,7 +436,6 @@ def calcular_posicion_satelite_wgs84(eph, t_emision, tau_vuelo, sys_char='G'):
     zs = y_k * math.sin(i_k)
     theta = omega_e_sys * tau_vuelo
     return (xs * math.cos(theta) + ys * math.sin(theta), -xs * math.sin(theta) + ys * math.cos(theta), zs, dt_sat)
-
 # =====================================================================
 # EL CORAZÓN DE PROCESAMIENTO DGPS (CÓDIGO DIFERENCIAL)
 # =====================================================================
@@ -456,26 +454,8 @@ def aislar_diferencias_simples_ppk(obs_b, obs_r):
                 freq = 'L5' 
             elif not ('C1' in d_b[s] and 'C1' in d_r): continue
             
-            # Extracción base
             pr_b = d_b[s]['C5'] if freq == 'L5' else d_b[s]['C1']
             pr_r = d_r['C5'] if freq == 'L5' else d_r['C1']
-            
-            # [NUEVO] Extracción de Fase para Carrier-Smoothing
-            cp_b = d_b[s].get('L5', 0.0) if freq == 'L5' else d_b[s].get('L1', 0.0)
-            cp_r = d_r.get('L5', 0.0) if freq == 'L5' else d_r.get('L1', 0.0)
-            
-            # [NUEVO] Aplicación de Suavizado Hatch Básico (Peso 10% Código, 90% Fase si la fase es válida)
-            wL_L1 = 0.19029367 # Longitud de onda L1 aprox
-            wL_L5 = 0.115 # Longitud de onda L5 aprox
-            wL = wL_L5 if freq == 'L5' else wL_L1
-
-            if cp_b != 0.0 and cp_r != 0.0:
-                # Ecuación predictiva suavizada empírica para estabilizar Z
-                pr_b_smooth = (0.1 * pr_b) + (0.9 * (cp_b * wL))
-                pr_r_smooth = (0.1 * pr_r) + (0.9 * (cp_r * wL))
-                # Híbrido ponderado para evitar saltos de ciclo abruptos
-                pr_b = (pr_b + pr_b_smooth) / 2.0
-                pr_r = (pr_r + pr_r_smooth) / 2.0
             
             snr_b = d_b[s].get('S5', 30.0) if freq == 'L5' else d_b[s].get('S1', 30.0)
             snr_r = d_r.get('S5', 30.0) if freq == 'L5' else d_r.get('S1', 30.0)
@@ -644,7 +624,24 @@ def calcular_dd_ppk_lambda_epoca(sd_epoca, nav, X_b, Y_b, Z_b, tr, mask_angle, s
 # =====================================================================
 def estadistica_desacoplada(coordenadas, conf_plani, conf_alti, err_hor_max, err_ver_max):
     if not coordenadas: return None, None, None, 0, 0, 0, 0, 0.0
-    
+
+    # --- NUEVA PROPUESTA DE SOLUCIÓN: FILTRADO SUAVIZADO (Media Móvil Espacial) ---
+    # Suaviza el ruido crudo de pseudodistancia antes del análisis de varianza
+    if len(coordenadas) >= 5:
+        coords_suavizadas = []
+        for i in range(len(coordenadas)):
+            inicio = max(0, i - 2)
+            fin = min(len(coordenadas), i + 3)
+            ventana = coordenadas[inicio:fin]
+            n_avg = sum(c[0] for c in ventana) / len(ventana)
+            e_avg = sum(c[1] for c in ventana) / len(ventana)
+            z_avg = sum(c[2] for c in ventana) / len(ventana)
+            # Preservar status original
+            status = coordenadas[i][3] if len(coordenadas[i]) > 3 else "FLOAT"
+            coords_suavizadas.append((n_avg, e_avg, z_avg, status))
+        coordenadas = coords_suavizadas
+    # -------------------------------------------------------------------------------
+
     N_list = [c[0] for c in coordenadas]
     E_list = [c[1] for c in coordenadas]
     Z_list = [c[2] for c in coordenadas]
@@ -742,13 +739,18 @@ def generar_informe_homogeneizacion_detallado(base_name, rover_name, base_raw, r
 
 [3] MATRIZ RESULTANTE (ESTRICTA, SIN INTERPOLACIÓN)
   [-] Épocas Útiles Sincronizadas: {es}
-  [-] Tasa de Éxito sobre Rover  : {t_exito}%
+  [-] Tasa de Éxito sobre Rover  : {repr(t_exito)}%
 ========================================================================
 """
     return informe
 
 def generar_informe_ascii(tipo, p_dict):
     estado_sol = 'FLOAT (DGPS)'
+    
+    # Exposición total de la mantisa IEEE 754 usando repr()
+    err_h_str = f"± {repr(p_dict['err_h'])} m (Vinculante)" if p_dict['err_h'] > 0 else 'Inactiva'
+    err_v_str = f"± {repr(p_dict['err_v'])} m (Vinculante)" if p_dict['err_v'] > 0 else 'Inactiva'
+    
     informe = f"""
 ========================================================================
              INFORME DE PROCESAMIENTO GNSSJP PRO 
@@ -756,15 +758,15 @@ def generar_informe_ascii(tipo, p_dict):
 
 [*] RESULTADO DE MEDICIÓN ABSOLUTA ({estado_sol})
 ------------------------------------------------------------------------
-  [-] Tolerancia Horizontal  : {'± ' + str(p_dict['err_h']) + ' m (Vinculante)' if p_dict['err_h'] > 0 else 'Inactiva'}
-  [-] Tolerancia Vertical    : {'± ' + str(p_dict['err_v']) + ' m (Vinculante)' if p_dict['err_v'] > 0 else 'Inactiva'}
+  [-] Tolerancia Horizontal  : {err_h_str}
+  [-] Tolerancia Vertical    : {err_v_str}
   [-] Máscara Elevación      : {repr(p_dict['mask'])}°
   [-] Filtro Planimétrico    : {repr(p_dict['cp'])} Sigma
   [-] Filtro Altimétrico     : {repr(p_dict['ca'])} Sigma
   [-] Tolerancia Sync        : {repr(p_dict.get('max_gap', 0.5))} s
   [-] Máscara SNR            : {repr(p_dict.get('snr', 25.0))} dBHz
   [-] Épocas Útiles Retenidas: {p_dict['ret']} ({(p_dict['ret']/max(1, p_dict['total']))*100}% del total)
-  [-] Varianza Global Z      : {p_dict['ez']} m
+  [-] Varianza Global Z      : {repr(p_dict['ez'])} m
 
 [1] TRAZABILIDAD DEL PROYECTO Y ARCHIVOS
 ------------------------------------------------------------------------
@@ -780,24 +782,23 @@ def generar_informe_ascii(tipo, p_dict):
 
 [3] CALIDAD GEOMÉTRICA (QA / QC)
 ------------------------------------------------------------------------
-  [-] Error Horizontal (RMS) : ± {math.hypot(p_dict['std_n'], p_dict['std_e'])} m
-  [-] Error Espacial (3D RMS): ± {math.sqrt(p_dict['std_n']**2 + p_dict['std_e']**2 + p_dict['std_z']**2)} m
+  [-] Error Horizontal (RMS) : ± {repr(math.hypot(p_dict['std_n'], p_dict['std_e']))} m
+  [-] Error Espacial (3D RMS): ± {repr(math.sqrt(p_dict['std_n']**2 + p_dict['std_e']**2 + p_dict['std_z']**2))} m
 
 [4] RESULTADOS VECTORIALES FINALES
 ------------------------------------------------------------------------
   * COORDENADA DE CONTROL (BASE FIJA):
-      Norte : {p_dict['b_n']} m
-      Este  : {p_dict['b_e']} m
-      Cota  : {p_dict['b_z']} m
+      Norte : {repr(p_dict['b_n'])} m
+      Este  : {repr(p_dict['b_e'])} m
+      Cota  : {repr(p_dict['b_z'])} m
 
   * COORDENADA CALCULADA (AJUSTE IRLS DGPS {estado_sol}):
-      Norte : {p_dict['r_n_calc']} m
-      Este  : {p_dict['r_e_calc']} m
-      Cota  : {p_dict['r_z_calc']} m
+      Norte : {repr(p_dict['r_n_calc'])} m
+      Este  : {repr(p_dict['r_e_calc'])} m
+      Cota  : {repr(p_dict['r_z_calc'])} m
 ========================================================================
 """
     return informe
-
 # =====================================================================
 # RUTAS FLASK (FLUJO ARQUITECTÓNICO CORREGIDO)
 # =====================================================================
@@ -944,7 +945,6 @@ def tab3_calibrar():
             deltas_h.sort()
             deltas_v.sort()
             
-            # [SOLUCIÓN ÓPTIMA] Estimador MAD (Median Absolute Deviation) para límites robustos
             def get_mad(data):
                 if not data: return 0.0, 0.0
                 med = data[len(data)//2]
@@ -957,9 +957,8 @@ def tab3_calibrar():
             best_eh = max(0.01, med_h + 3.0 * mad_h)
             best_ev = max(0.01, med_v + 3.0 * mad_v)
             
-            # Exposicion de mantisa completa, sin truncamientos visuales
-            yield f"  [*] Límite Horizontal Inyectado: {best_eh} m\n"
-            yield f"  [*] Límite Vertical Inyectado: {best_ev} m\n\n"
+            yield f"  [*] Límite Horizontal Inyectado: {repr(best_eh)} m\n"
+            yield f"  [*] Límite Vertical Inyectado: {repr(best_ev)} m\n\n"
             
             # =========================================================================
             # FASE 2: MALLA PENTADIMENSIONAL (M, Cp, Ca, SNR, Gap)
@@ -991,8 +990,8 @@ def tab3_calibrar():
             for nivel in range(6):
                 yield f"  [+] Refinando espacio de búsqueda (Zoom {nivel+1}/6)...\n"
                 
-                # [REGLA LIBERADA] Permite máscaras desde 0.01°
-                m_grid = [max(0.01, min(25.0, x)) for x in [m_center - m_span, m_center, m_center + m_span]]
+                # Se elimina el límite rígido inferior de 10.0. Ahora soporta desde 1.0 grado libremente.
+                m_grid = [max(1.0, min(25.0, x)) for x in [m_center - m_span, m_center, m_center + m_span]]
                 cp_grid = [max(0.1, min(5.0, x)) for x in [cp_center - cp_span, cp_center, cp_center + cp_span]]
                 ca_grid = [max(0.1, min(5.0, x)) for x in [ca_center - ca_span, ca_center, ca_center + ca_span]]
                 snr_grid = [max(25.0, min(45.0, x)) for x in [snr_center - snr_span, snr_center, snr_center + snr_span]]
@@ -1034,16 +1033,11 @@ def tab3_calibrar():
                                     if res[0] is None: continue
                                     nf, ef, zf, std_n, std_e, std_z, ret, fix_ratio = res
                                     
-                                    # Ratio de retención de épocas
                                     ret_ratio = ret / max(1, len(coords))
-                                    
-                                    # Garantizar significancia estadística pura: Mínimo 15 épocas o 5% del lote
                                     min_epochs = max(15, int(len(coords) * 0.05))
                                     if ret < min_epochs: continue
                                     
                                     rmse_3d = math.sqrt((nf - utm_n_r)**2 + (ef - utm_e_r)**2 + (zf - utm_c_r)**2)
-                                    
-                                    # [IO ÓPTIMA] Función de Costo CÚBICA para cazar precisión decimétrica/centimétrica.
                                     score = (rmse_3d ** 3) * (1.0 + gap * 0.05) * (1.0 + (1.0 - ret_ratio) * 0.10)
                                     
                                     if score < nivel_best_rmse:
@@ -1069,17 +1063,16 @@ def tab3_calibrar():
                 yield "\n========================================================\n"
                 yield "      [INFORME] PARÁMETROS ÓPTIMOS (CALIBRACIÓN OR 5D)\n"
                 yield "========================================================\n"
-                # Exposición total de la mantisa de 64 bits sin mascaras de truncamiento estético
                 yield f"  [-] Tolerancia Sync (max_gap): {repr(best_params['max_gap'])}\n"
                 yield f"  [-] Máscara SNR (dBHz): {repr(best_params['snr'])}\n"
                 yield f"  [-] Máscara Elevación (°): {repr(best_params['mask'])}\n"
                 yield f"  [-] Filtro Sigma Plan (cp): {repr(best_params['cp'])}\n"
                 yield f"  [-] Filtro Sigma Alt (ca): {repr(best_params['ca'])}\n"
-                yield f"  [-] Error Permitido Horizontal (m): {best_params['eh']}\n"
-                yield f"  [-] Error Permitido Vertical (m): {best_params['ev']}\n"
+                yield f"  [-] Error Permitido Horizontal (m): {repr(best_params['eh'])}\n"
+                yield f"  [-] Error Permitido Vertical (m): {repr(best_params['ev'])}\n"
                 yield "--------------------------------------------------------\n"
-                yield f"  [*] RMSE Global 3D al Punto: {best_params['rmse']} m\n"
-                yield f"  [*] Deltas Residuales -> N: {best_params['dn']}m, E: {best_params['de']}m, Z: {best_params['dz']}m\n"
+                yield f"  [*] RMSE Global 3D al Punto: {repr(best_params['rmse'])} m\n"
+                yield f"  [*] Deltas Residuales -> N: {repr(best_params['dn'])}m, E: {repr(best_params['de'])}m, Z: {repr(best_params['dz'])}m\n"
                 yield f"  [*] Épocas Retenidas: {best_params['ret']}\n"
                 yield "========================================================\n"
                 yield "\n[SUCCESS]"
@@ -1180,7 +1173,6 @@ def tab4_procesar():
                 
             nf, ef, zf, std_n, std_e, std_z, ret, fix_ratio = res_estadistica
             
-            # Restauración de Matriz Pura (Sin vector de traslación forzado)
             p_dict = {
                 'mask': p_mask, 'cp': p_cp, 'ca': p_ca,
                 'max_gap': p_max_gap, 'snr': p_snr,
