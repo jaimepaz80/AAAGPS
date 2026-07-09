@@ -175,6 +175,7 @@ def generar_rinex_sincronizado(raw_path, out_path, obs_dict):
                 l1 = obs_dict[tow][sat].get('L1', 0.0)
                 c5 = obs_dict[tow][sat].get('C5', 0.0)
                 l5 = obs_dict[tow][sat].get('L5', 0.0)
+                # Formateo interno crudo para el archivo de salida
                 c1_s = f"{c1:14.3f}" if c1 > 0 else "              "
                 l1_s = f"{l1:14.3f}" if l1 > 0 else "              "
                 c5_s = f"{c5:14.3f}" if c5 > 0 else "              "
@@ -258,7 +259,6 @@ def descargar_efemerides_brdc_stream(year, month, day, hour):
                 return
         except Exception: pass
     yield ("ERROR", "Falla catastrófica al conectar con IGS/BKG.")
-
 # =====================================================================
 # MOTOR ALGEBRAICO N x N
 # =====================================================================
@@ -436,7 +436,6 @@ def calcular_posicion_satelite_wgs84(eph, t_emision, tau_vuelo, sys_char='G'):
     zs = y_k * math.sin(i_k)
     theta = omega_e_sys * tau_vuelo
     return (xs * math.cos(theta) + ys * math.sin(theta), -xs * math.sin(theta) + ys * math.cos(theta), zs, dt_sat)
-
 # =====================================================================
 # EL CORAZÓN DE PROCESAMIENTO DGPS (CÓDIGO DIFERENCIAL)
 # =====================================================================
@@ -450,16 +449,16 @@ def aislar_diferencias_simples_ppk(obs_b, obs_r):
             if s == '_meta' or s not in obs_b[tow]: continue
             d_b = obs_b[tow]
             
-            # [PROPUESTA C1] Procesar estrictamente frecuencias duales L1/L5
-            # Garantiza mitigación Ionosférica y resistencia al trayecto múltiple cruzado
-            if not ('C1' in d_b[s] and 'C1' in d_r and 'C5' in d_b[s] and 'C5' in d_r):
-                continue
+            freq = 'L1' 
+            if 'C5' in d_b[s] and 'C5' in d_r and 'L5' in d_b[s] and 'L5' in d_r:
+                freq = 'L5' 
+            elif not ('C1' in d_b[s] and 'C1' in d_r): continue
             
-            pr_b = d_b[s]['C5'] 
-            pr_r = d_r['C5']
+            pr_b = d_b[s]['C5'] if freq == 'L5' else d_b[s]['C1']
+            pr_r = d_r['C5'] if freq == 'L5' else d_r['C1']
             
-            snr_b = d_b[s].get('S5', 30.0) 
-            snr_r = d_r.get('S5', 30.0) 
+            snr_b = d_b[s].get('S5', 30.0) if freq == 'L5' else d_b[s].get('S1', 30.0)
+            snr_r = d_r.get('S5', 30.0) if freq == 'L5' else d_r.get('S1', 30.0)
             
             sd_P = pr_r - pr_b
             
@@ -493,20 +492,22 @@ def calcular_dd_ppk_lambda_epoca(sd_epoca, nav, X_b, Y_b, Z_b, tr, mask_angle, s
                 if el_r >= mask_angle and d.get('snr', 30.0) >= snr_mask:
                     sat_positions[s] = {'sp_r': sp_r, 'sp_b': sp_b, 'sd_P': d['sd_P'], 'snr': d.get('snr', 30.0)}
         
-        if len(sat_positions) < 5: return None, "FAILED"
+        if len(sat_positions) < 4: return None, "FAILED"
         
         sat_list_full = list(sat_positions.keys())
+        constellations = set([s[0] for s in sat_list_full])
+        ref_sats = {}
+        sat_list = []
         
-        # [PROPUESTA C3] Referencia Universal Única
-        # Esto permite que la matriz retenga una columna para absorber el Inter-System Bias.
-        universal_ref = max(sat_list_full, key=lambda k: calcular_topocentricas(sat_positions[k]['sp_r'][0], sat_positions[k]['sp_r'][1], sat_positions[k]['sp_r'][2], X_iter, Y_iter, Z_iter)[0])
-        ref_sys = universal_ref[0]
-        sat_list = [s for s in sat_list_full if s != universal_ref]
+        for c in constellations:
+            c_sats = [s for s in sat_list_full if s[0] == c]
+            if len(c_sats) >= 2:
+                r_candidate = max(c_sats, key=lambda k: calcular_topocentricas(sat_positions[k]['sp_r'][0], sat_positions[k]['sp_r'][1], sat_positions[k]['sp_r'][2], X_iter, Y_iter, Z_iter)[0])
+                ref_sats[c] = r_candidate
+                c_sats.remove(ref_sats[c])
+                sat_list.extend(c_sats)
         
-        if len(sat_list) < 4: return None, "FAILED" 
-        
-        has_diff_sys = any(s[0] != ref_sys for s in sat_list)
-        ISB_bias = 0.0 # Parámetro Inicial (Inter-System Bias multimarca)
+        if len(sat_list) < 3: return None, "FAILED" 
         
         def calc_rho(sp, X, Y, Z, lat, lon, alt, el, az):
             dist = math.sqrt((sp[0]-X)**2 + (sp[1]-Y)**2 + (sp[2]-Z)**2)
@@ -529,43 +530,48 @@ def calcular_dd_ppk_lambda_epoca(sd_epoca, nav, X_b, Y_b, Z_b, tr, mask_angle, s
             L = []      
             W_diag = [] 
             
-            # Datos Satélite Referencia Universal
-            r_data = sat_positions[universal_ref]
-            el_r, az_r = calcular_topocentricas(r_data['sp_r'][0], r_data['sp_r'][1], r_data['sp_r'][2], X_iter, Y_iter, Z_iter)
-            rho_r, iono_r, dist_r = calc_rho(r_data['sp_r'], X_iter, Y_iter, Z_iter, lat_it, lon_it, alt_it, el_r, az_r)
-            SD_P_calc_ref = (rho_r + iono_r) - base_calcs[universal_ref]
+            c_ref = {}
+            for c, r_sat in ref_sats.items():
+                r_data = sat_positions[r_sat]
+                el_r, az_r = calcular_topocentricas(r_data['sp_r'][0], r_data['sp_r'][1], r_data['sp_r'][2], X_iter, Y_iter, Z_iter)
+                rho_r, iono_r, dist_r = calc_rho(r_data['sp_r'], X_iter, Y_iter, Z_iter, lat_it, lon_it, alt_it, el_r, az_r)
+                
+                SD_P_calc_ref = (rho_r + iono_r) - base_calcs[r_sat]
+                c_ref[c] = {
+                    'dist_r': dist_r,
+                    'SD_P_calc_ref': SD_P_calc_ref,
+                    'sp_r': r_data['sp_r'],
+                    'el_r': el_r,
+                    'snr': r_data['snr'],
+                    'sd_P': r_data['sd_P']
+                }
             
             res_idx = 0
             for i, s in enumerate(sat_list):
+                c = s[0]
                 data = sat_positions[s]
+                rc = c_ref[c]
                 
                 el_i_r, az_i_r = calcular_topocentricas(data['sp_r'][0], data['sp_r'][1], data['sp_r'][2], X_iter, Y_iter, Z_iter)
                 rho_i_r, iono_i_r, dist_i_r = calc_rho(data['sp_r'], X_iter, Y_iter, Z_iter, lat_it, lon_it, alt_it, el_i_r, az_i_r)
                 
                 SD_P_calc_i = (rho_i_r + iono_i_r) - base_calcs[s]
-                
-                # [PROPUESTA C3]: Inyección Dinámica del Inter-System Bias (ISB) para absorber el desfase Multi-marca (Teléfono 1 vs Teléfono 2)
-                is_diff_sys = 1.0 if s[0] != ref_sys else 0.0
-                DD_P_calc = SD_P_calc_i - SD_P_calc_ref + (is_diff_sys * ISB_bias)
+                DD_P_calc = SD_P_calc_i - rc['SD_P_calc_ref']
                 
                 dx_geom = [
-                    -(data['sp_r'][0] - X_iter) / dist_i_r - (-(r_data['sp_r'][0] - X_iter) / dist_r),
-                    -(data['sp_r'][1] - Y_iter) / dist_i_r - (-(r_data['sp_r'][1] - Y_iter) / dist_r),
-                    -(data['sp_r'][2] - Z_iter) / dist_i_r - (-(r_data['sp_r'][2] - Z_iter) / dist_r)
+                    -(data['sp_r'][0] - X_iter) / dist_i_r - (-(rc['sp_r'][0] - X_iter) / rc['dist_r']),
+                    -(data['sp_r'][1] - Y_iter) / dist_i_r - (-(rc['sp_r'][1] - Y_iter) / rc['dist_r']),
+                    -(data['sp_r'][2] - Z_iter) / dist_i_r - (-(rc['sp_r'][2] - Z_iter) / rc['dist_r'])
                 ]
-                if has_diff_sys:
-                    dx_geom.append(is_diff_sys)
                 
-                # [PROPUESTA C2]: Matriz de Ponderación Estocástica Basada en SNR y Elevación
-                # W_i = (sin(elev_i))^2 * 10^((SNR_i - 40)/10)
                 sin_el_i_sq = math.sin(math.radians(el_i_r))**2
-                sin_el_ref_sq = math.sin(math.radians(el_r))**2
-                snr_i_weight = 10.0 ** ((data['snr'] - 40.0) / 10.0)
-                snr_ref_weight = 10.0 ** ((r_data['snr'] - 40.0) / 10.0)
+                sin_el_ref_sq = math.sin(math.radians(rc['el_r']))**2
+                snr_i_pow = 10.0 ** (data['snr'] / 10.0)
+                snr_ref_pow = 10.0 ** (rc['snr'] / 10.0)
                 
-                w_i_ref = (sin_el_i_sq * snr_i_weight * sin_el_ref_sq * snr_ref_weight) / max(1e-6, (sin_el_i_sq * snr_i_weight) + (sin_el_ref_sq * snr_ref_weight))
+                w_i_ref = (sin_el_i_sq * snr_i_pow * sin_el_ref_sq * snr_ref_pow) / max(1.0, (sin_el_i_sq * snr_i_pow) + (sin_el_ref_sq * snr_ref_pow))
 
-                DD_P_obs = data['sd_P'] - r_data['sd_P']
+                DD_P_obs = data['sd_P'] - rc['sd_P']
                 res_P = DD_P_obs - DD_P_calc
                 
                 L.append([res_P])
@@ -600,8 +606,6 @@ def calcular_dd_ppk_lambda_epoca(sd_epoca, nav, X_b, Y_b, Z_b, tr, mask_angle, s
             if not Delta_X or len(Delta_X) < 3 or not Delta_X[0]: return None, "FAILED" 
 
             X_iter += Delta_X[0][0]; Y_iter += Delta_X[1][0]; Z_iter += Delta_X[2][0]
-            if has_diff_sys and len(Delta_X) == 4:
-                ISB_bias += Delta_X[3][0]
                 
             prev_residuals = []
             for r in range(len(H)):
@@ -621,7 +625,8 @@ def calcular_dd_ppk_lambda_epoca(sd_epoca, nav, X_b, Y_b, Z_b, tr, mask_angle, s
 def estadistica_desacoplada(coordenadas, conf_plani, conf_alti, err_hor_max, err_ver_max):
     if not coordenadas: return None, None, None, 0, 0, 0, 0, 0.0
 
-    # --- FILTRADO SUAVIZADO (Media Móvil Espacial) ---
+    # --- NUEVA PROPUESTA DE SOLUCIÓN: FILTRADO SUAVIZADO (Media Móvil Espacial) ---
+    # Suaviza el ruido crudo de pseudodistancia antes del análisis de varianza
     if len(coordenadas) >= 5:
         coords_suavizadas = []
         for i in range(len(coordenadas)):
@@ -631,6 +636,7 @@ def estadistica_desacoplada(coordenadas, conf_plani, conf_alti, err_hor_max, err
             n_avg = sum(c[0] for c in ventana) / len(ventana)
             e_avg = sum(c[1] for c in ventana) / len(ventana)
             z_avg = sum(c[2] for c in ventana) / len(ventana)
+            # Preservar status original
             status = coordenadas[i][3] if len(coordenadas[i]) > 3 else "FLOAT"
             coords_suavizadas.append((n_avg, e_avg, z_avg, status))
         coordenadas = coords_suavizadas
@@ -713,6 +719,7 @@ def generar_informe_homogeneizacion_detallado(base_name, rover_name, base_raw, r
     cs, es, s_ini, s_fin, tr_s, _ = get_stats(rover_sinc)
     t_exito = (es / er * 100) if er > 0 else 0.0
     
+    # Formateo crudo
     b_ini_str = f"{b_ini[3]:02d}:{b_ini[4]:02d}:{b_ini[5]}" if b_ini else "N/A"
     b_fin_str = f"{b_fin[3]:02d}:{b_fin[4]:02d}:{b_fin[5]}" if b_fin else "N/A"
     r_ini_str = f"{r_ini[3]:02d}:{r_ini[4]:02d}:{r_ini[5]}" if r_ini else "N/A"
@@ -740,6 +747,7 @@ def generar_informe_homogeneizacion_detallado(base_name, rover_name, base_raw, r
 def generar_informe_ascii(tipo, p_dict):
     estado_sol = 'FLOAT (DGPS)'
     
+    # Exposición total de la mantisa IEEE 754 usando repr()
     err_h_str = f"± {repr(p_dict['err_h'])} m (Vinculante)" if p_dict['err_h'] > 0 else 'Inactiva'
     err_v_str = f"± {repr(p_dict['err_v'])} m (Vinculante)" if p_dict['err_v'] > 0 else 'Inactiva'
     
@@ -791,7 +799,6 @@ def generar_informe_ascii(tipo, p_dict):
 ========================================================================
 """
     return informe
-
 # =====================================================================
 # RUTAS FLASK (FLUJO ARQUITECTÓNICO CORREGIDO)
 # =====================================================================
@@ -915,6 +922,9 @@ def tab3_calibrar():
             
             X_b, Y_b, Z_b = geodesicas_a_ecef(lat_b, lon_b, utm_c + h_b)
 
+            # =========================================================================
+            # FASE 1: CÁLCULO DETERMINISTA DE ERRORES MÁXIMOS (Eh, Ev)
+            # =========================================================================
             yield "[PROGRESO] Fase 1: Extrayendo Errores Máximos Permitidos...\n"
             
             coords_raw = []
@@ -950,6 +960,9 @@ def tab3_calibrar():
             yield f"  [*] Límite Horizontal Inyectado: {repr(best_eh)} m\n"
             yield f"  [*] Límite Vertical Inyectado: {repr(best_ev)} m\n\n"
             
+            # =========================================================================
+            # FASE 2: MALLA PENTADIMENSIONAL (M, Cp, Ca, SNR, Gap)
+            # =========================================================================
             yield "[PROGRESO] Fase 2: Malla Pentadimensional para Parámetros (M, Cp, Ca, SNR, Gap)...\n"
             
             best_rmse = float('inf')
@@ -977,6 +990,7 @@ def tab3_calibrar():
             for nivel in range(6):
                 yield f"  [+] Refinando espacio de búsqueda (Zoom {nivel+1}/6)...\n"
                 
+                # Se elimina el límite rígido inferior de 10.0. Ahora soporta desde 1.0 grado libremente.
                 m_grid = [max(1.0, min(25.0, x)) for x in [m_center - m_span, m_center, m_center + m_span]]
                 cp_grid = [max(0.1, min(5.0, x)) for x in [cp_center - cp_span, cp_center, cp_center + cp_span]]
                 ca_grid = [max(0.1, min(5.0, x)) for x in [ca_center - ca_span, ca_center, ca_center + ca_span]]
@@ -1181,4 +1195,3 @@ def tab4_procesar():
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=7000, debug=True)
-
