@@ -759,17 +759,101 @@ def estadistica_desacoplada(coordenadas, conf_plani, conf_alti, err_hor_max, err
 # =====================================================================
 # GENERADORES DE INFORMES (FRONTEND CRUDO - MANTISA TOTAL)
 # =====================================================================
+def generar_informe_homogeneizacion_detallado(base_name, rover_name, base_raw, rover_raw, rover_sinc):
+    def get_stats(obs):
+        c = {'G':0, 'E':0, 'C':0, 'R':0, 'S':0, 'J':0}
+        tiempos = sorted(list(obs.keys()))
+        if not tiempos: return c, 0, None, None, 0.0, 0
+        epocas = len(obs)
+        t_ini, t_fin = obs[tiempos[0]]['_meta'], obs[tiempos[-1]]['_meta']
+        intervalos = [tiempos[i] - tiempos[i-1] for i in range(1, epocas)]
+        tasa_muestreo = sum(intervalos)/len(intervalos) if intervalos else 0.0
+        gaps = sum(1 for i in intervalos if i > tasa_muestreo * 1.5)
+        for t in tiempos:
+            for s in obs[t]:
+                if s != '_meta' and s[0] in c: c[s[0]] += 1
+        return {k: v/epocas for k, v in c.items()}, epocas, t_ini, t_fin, tasa_muestreo, gaps
+    
+    cb, eb, b_ini, b_fin, tr_b, g_b = get_stats(base_raw)
+    cr, er, r_ini, r_fin, tr_r, g_r = get_stats(rover_raw)
+    cs, es, s_ini, s_fin, tr_s, _ = get_stats(rover_sinc)
+    t_exito = (es / er * 100.0) if er > 0 else 0.0
+    
+    # Mantisa cruda sin restricciones
+    b_ini_str = f"{b_ini[3]:02d}:{b_ini[4]:02d}:{b_ini[5]}" if b_ini else "N/A"
+    b_fin_str = f"{b_fin[3]:02d}:{b_fin[4]:02d}:{b_fin[5]}" if b_fin else "N/A"
+    r_ini_str = f"{r_ini[3]:02d}:{r_ini[4]:02d}:{r_ini[5]}" if r_ini else "N/A"
+    r_fin_str = f"{r_fin[3]:02d}:{r_fin[4]:02d}:{r_fin[5]}" if r_fin else "N/A"
+    
+    informe = f"""
+========================================================================
+    AUDITORÍA FORENSE DE EMPAREJAMIENTO DE ÉPOCAS
+========================================================================
+[1] PARÁMETROS DE CONTROL (BASE) : {base_name}
+  [-] Épocas Crudas Registradas : {eb}
+  [-] Ventana de Observación    : {b_ini_str} - {b_fin_str}
+
+[2] PARÁMETROS DEL MÓVIL (ROVER) : {rover_name}
+  [-] Épocas Crudas Registradas : {er}
+  [-] Ventana de Observación    : {r_ini_str} - {r_fin_str}
+
+[3] MATRIZ RESULTANTE (ESTRICTA, SIN INTERPOLACIÓN)
+  [-] Épocas Útiles Sincronizadas: {es}
+  [-] Tasa de Éxito sobre Rover  : {t_exito}%
+========================================================================
+"""
+    return informe
+
 def generar_informe_ascii(tipo, p_dict):
-    return f"""
+    estado_sol = 'FLOAT (DGPS)'
+    informe = f"""
 ========================================================================
              INFORME DE PROCESAMIENTO GNSSJP PRO (MANTISA TOTAL)
 ========================================================================
-  [-] Coordenada Calculada (Norte): {p_dict['r_n_calc']} m
-  [-] Coordenada Calculada (Este) : {p_dict['r_e_calc']} m
-  [-] Coordenada Calculada (Cota) : {p_dict['r_z_calc']} m
-  [-] Error 3D RMS                : {math.sqrt(p_dict['std_n']**2 + p_dict['std_e']**2 + p_dict['std_z']**2)} m
+
+[*] RESULTADO DE MEDICIÓN ABSOLUTA ({estado_sol})
+------------------------------------------------------------------------
+  [-] Tolerancia Horizontal  : {'± ' + str(p_dict['err_h']) + ' m (Vinculante)' if p_dict['err_h'] > 0 else 'Inactiva'}
+  [-] Tolerancia Vertical    : {'± ' + str(p_dict['err_v']) + ' m (Vinculante)' if p_dict['err_v'] > 0 else 'Inactiva'}
+  [-] Máscara Elevación      : {p_dict['mask']}°
+  [-] Filtro Planimétrico    : {p_dict['cp']} Sigma
+  [-] Filtro Altimétrico     : {p_dict['ca']} Sigma
+  [-] Tolerancia Sync        : {p_dict.get('max_gap', 0.5)} s
+  [-] Máscara SNR            : {p_dict.get('snr', 25.0)} dBHz
+  [-] Épocas Útiles Retenidas: {p_dict['ret']} ({(p_dict['ret']/max(1, p_dict['total']))*100}% del total)
+  [-] Varianza Global Z      : {p_dict['ez']} m
+
+[1] TRAZABILIDAD DEL PROYECTO Y ARCHIVOS
+------------------------------------------------------------------------
+  [-] Archivo Control (Base) : {p_dict['base_file']}
+  [-] Archivo Móvil (Rover)  : {p_dict['rover_file']}
+  [-] Archivo Efemérides     : {p_dict['nav_file']}
+
+[2] ESTRATEGIA MATEMÁTICA Y ESTADÍSTICA
+------------------------------------------------------------------------
+  [-] Motor Algorítmico      : Diferencias Dobles Pseudodistancia (Hatch Smoothed)
+  [-] Resolución Matriz      : Ajuste IRLS Mínimos Cuadrados
+  [-] Sincronización Épocas  : Emparejamiento Dinámico Estricto
+
+[3] CALIDAD GEOMÉTRICA (QA / QC)
+------------------------------------------------------------------------
+  [-] Error Horizontal (RMS) : ± {math.hypot(p_dict['std_n'], p_dict['std_e'])} m
+  [-] Error Espacial (3D RMS): ± {math.sqrt(p_dict['std_n']**2 + p_dict['std_e']**2 + p_dict['std_z']**2)} m
+
+[4] RESULTADOS VECTORIALES FINALES
+------------------------------------------------------------------------
+  * COORDENADA DE CONTROL (BASE FIJA):
+      Norte : {p_dict['b_n']} m
+      Este  : {p_dict['b_e']} m
+      Cota  : {p_dict['b_z']} m
+
+  * COORDENADA CALCULADA (AJUSTE IRLS DGPS {estado_sol}):
+      Norte : {p_dict['r_n_calc']} m
+      Este  : {p_dict['r_e_calc']} m
+      Cota  : {p_dict['r_z_calc']} m
 ========================================================================
 """
+    return informe
 # =====================================================================
 # RUTAS FLASK (FLUJO ARQUITECTÓNICO - INTEGRACIÓN HATCH FILTRADA)
 # =====================================================================
@@ -900,3 +984,4 @@ def tab4_procesar():
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=7000, debug=True)
+
