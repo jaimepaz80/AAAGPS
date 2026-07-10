@@ -62,7 +62,7 @@
 
         <section id="tab1" class="tab-content active bg-gray-800 p-6 rounded shadow-lg">
             <h2 class="text-xl mb-4 font-semibold border-b border-gray-600 pb-2">Archivos de Observación (RINEX .obs)</h2>
-            <form id="form-tab1" onsubmit="submitForm(event, '/tab1_homogenizar', 'console1', 2)">
+            <form id="form-tab1" onsubmit="submitForm(event, '/api/tab1_homogenizar', 'console1', 2)">
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                     <div>
                         <label class="block text-sm mb-1">Archivo Base Pivote (Sesión Completa):</label>
@@ -90,7 +90,7 @@
         <section id="tab3" class="tab-content bg-gray-800 p-6 rounded shadow-lg">
             <h2 class="text-xl mb-4 font-semibold border-b border-gray-600 pb-2">Investigación de Operaciones: Búsqueda y Calibración Exacta</h2>
             <p class="text-sm text-gray-400 mb-4">Simulador Monte Carlo pentadimensional continuo (14 decimales IEEE 754). Minimiza el RMSE contra una coordenada Rover conocida optimizando 5 variables críticas.</p>
-            <form id="form-tab3" onsubmit="submitForm(event, '/tab3_calibrar', 'console3', 4)">
+            <form id="form-tab3" onsubmit="submitForm(event, '/api/tab3_calibrar', 'console3', 4)">
                 
                 <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
                     <div class="sm:col-span-3"><h3 class="text-purple-400 font-bold text-sm">COORDENADAS ABSOLUTAS BASE (ESTACIÓN FIJA)</h3></div>
@@ -152,7 +152,7 @@
 
         <section id="tab4" class="tab-content bg-gray-800 p-6 rounded shadow-lg">
             <h2 class="text-xl mb-4 font-semibold border-b border-gray-600 pb-2">Ajuste de Red DGPS Diferencial (Cálculo Rover Desconocido)</h2>
-            <form id="form-tab4" onsubmit="submitForm(event, '/tab4_procesar', 'console4', null)">
+            <form id="form-tab4" onsubmit="submitForm(event, '/api/tab4_procesar', 'console4', null)">
                 
                 <div class="grid grid-cols-1 gap-4 mb-4">
                     <div>
@@ -319,7 +319,8 @@
                     if (consoleId === 'console3') document.getElementById('btn-pdf-tab3').classList.remove('hidden');
                     if (consoleId === 'console4') document.getElementById('btn-pdf-tab4').classList.remove('hidden');
                     
-                    if (url === '/tab3_calibrar') {
+                    // CORRECCIÓN DE EVALUACIÓN DE URL: Reflejando la ruta /api/
+                    if (url === '/api/tab3_calibrar') {
                         // Sincronizar coordenadas
                         document.querySelector('#form-tab4 input[name="utm_norte"]').value = document.querySelector('#form-tab3 input[name="utm_norte"]').value;
                         document.querySelector('#form-tab4 input[name="utm_este"]').value = document.querySelector('#form-tab3 input[name="utm_este"]').value;
@@ -363,7 +364,8 @@
             let fullOutput = "";
 
             try {
-                const response = await fetch('/tab2_efemerides', { method: 'POST' });
+                // CORRECCIÓN DE ENRUTAMIENTO: Añadido /api/
+                const response = await fetch('/api/tab2_efemerides', { method: 'POST' });
                 if (!response.body) throw new Error("No se recibió respuesta del servidor.");
                 
                 const reader = response.body.getReader();
@@ -441,4 +443,3 @@
     </script>
 </body>
 </html>
-
