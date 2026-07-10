@@ -8,8 +8,8 @@
   ],
   "rewrites": [
     {
-      "source": "/(.*)",
-      "destination": "/API/app.py"
+      "source": "/API/(.*)",
+      "destination": "/API/app"
     }
   ]
 }
