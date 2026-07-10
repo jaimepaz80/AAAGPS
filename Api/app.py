@@ -268,7 +268,6 @@ def descargar_efemerides_brdc_stream(year, month, day, hour):
                 return
         except Exception: pass
     yield ("ERROR", "Falla catastrófica al conectar con IGS/BKG.")
-
 # =====================================================================
 # MOTOR ALGEBRAICO N x N
 # =====================================================================
@@ -446,7 +445,6 @@ def calcular_posicion_satelite_wgs84(eph, t_emision, tau_vuelo, sys_char='G'):
     zs = y_k * math.sin(i_k)
     theta = omega_e_sys * tau_vuelo
     return (xs * math.cos(theta) + ys * math.sin(theta), -xs * math.sin(theta) + ys * math.cos(theta), zs, dt_sat)
-
 # =====================================================================
 # EL CORAZÓN DE PROCESAMIENTO DGPS (CÓDIGO DIFERENCIAL)
 # =====================================================================
@@ -788,7 +786,7 @@ def generar_informe_ascii(tipo, p_dict):
 """
     return informe
 # =====================================================================
-# RUTAS FLASK (FLUJO ARQUITECTÓNICO CORREGIDO)
+# RUTAS FLASK (FLUJO ARQUITECTÓNICO CORREGIDO PARA VERCEL)
 # =====================================================================
 @app.route('/')
 def index():
@@ -797,7 +795,8 @@ def index():
     index_path = os.path.join(base_dir, 'index.html')
     return send_file(index_path)
 
-@app.route('/tab1_homogenizar', methods=['POST'])
+# CORRECCIÓN DE ENRUTAMIENTO: '/tab1_homogenizar' -> '/api/tab1_homogenizar'
+@app.route('/api/tab1_homogenizar', methods=['POST'])
 def tab1_homogenizar():
     with STATE_LOCK:
         if os.path.exists(STATE_FILE):
@@ -847,7 +846,8 @@ def tab1_homogenizar():
         except Exception as e: yield f"\n> [ERROR] Falla estructural: {str(e)}"
     return Response(procesar(), mimetype='text/plain')
 
-@app.route('/tab2_efemerides', methods=['POST'])
+# CORRECCIÓN DE ENRUTAMIENTO: '/tab2_efemerides' -> '/api/tab2_efemerides'
+@app.route('/api/tab2_efemerides', methods=['POST'])
 def tab2_efemerides():
     def procesar():
         try:
@@ -868,7 +868,8 @@ def tab2_efemerides():
         except Exception as e: yield f"\n> [ERROR GENERAL] Excepción capturada: {str(e)}"
     return Response(procesar(), mimetype='text/plain')
 
-@app.route('/tab3_calibrar', methods=['POST'])
+# CORRECCIÓN DE ENRUTAMIENTO: '/tab3_calibrar' -> '/api/tab3_calibrar'
+@app.route('/api/tab3_calibrar', methods=['POST'])
 def tab3_calibrar():
     utm_n = safe_f(request.form.get('utm_norte'), 0.0)
     utm_e = safe_f(request.form.get('utm_este'), 0.0)
@@ -1072,7 +1073,8 @@ def tab3_calibrar():
         except Exception as e: yield f"\n> [ERROR FATAL] {str(e)}"
     return Response(procesar(), mimetype='text/plain')
 
-@app.route('/tab4_procesar', methods=['POST'])
+# CORRECCIÓN DE ENRUTAMIENTO: '/tab4_procesar' -> '/api/tab4_procesar'
+@app.route('/api/tab4_procesar', methods=['POST'])
 def tab4_procesar():
     utm_n = safe_f(request.form.get('utm_norte'), 0.0)
     utm_e = safe_f(request.form.get('utm_este'), 0.0)
