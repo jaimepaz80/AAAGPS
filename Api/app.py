@@ -460,25 +460,14 @@ def aislar_diferencias_simples_ppk(obs_b, obs_r):
             if s == '_meta' or s not in obs_b[tow]: continue
             d_b = obs_b[tow]
             
-            # --- FILTRO LÓGICO ESTRICTO: EXIGIR FASE Y CÓDIGO ---
-            valid_b_L1 = 'C1' in d_b[s] and 'L1' in d_b[s]
-            valid_r_L1 = 'C1' in d_r and 'L1' in d_r
-            valid_b_L5 = 'C5' in d_b[s] and 'L5' in d_b[s]
-            valid_r_L5 = 'C5' in d_r and 'L5' in d_r
+            # Lógica original: Priorizar L1, respaldar con L5, sin descartar épocas viables
+            pr_b = d_b[s].get('C1') or d_b[s].get('C5')
+            pr_r = d_r.get('C1') or d_r.get('C5')
             
-            freq = None 
-            if valid_b_L5 and valid_r_L5:
-                freq = 'L5' 
-            elif valid_b_L1 and valid_r_L1:
-                freq = 'L1'
-            else:
-                continue
+            if not pr_b or not pr_r: continue
             
-            pr_b = d_b[s]['C5'] if freq == 'L5' else d_b[s]['C1']
-            pr_r = d_r['C5'] if freq == 'L5' else d_r['C1']
-            
-            snr_b = d_b[s].get('S5', 30.0) if freq == 'L5' else d_b[s].get('S1', 30.0)
-            snr_r = d_r.get('S5', 30.0) if freq == 'L5' else d_r.get('S1', 30.0)
+            snr_b = d_b[s].get('S1') or d_b[s].get('S5', 30.0)
+            snr_r = d_r.get('S1') or d_r.get('S5', 30.0)
             
             sd_P = pr_r - pr_b
             
