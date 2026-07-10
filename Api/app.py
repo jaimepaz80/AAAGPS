@@ -791,7 +791,11 @@ def generar_informe_ascii(tipo, p_dict):
 # RUTAS FLASK (FLUJO ARQUITECTÓNICO CORREGIDO)
 # =====================================================================
 @app.route('/')
-def index(): return send_file('index.html')
+def index():
+    # Vercel Serverless environment: api/app.py is executed, so root is one level up.
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    index_path = os.path.join(base_dir, 'index.html')
+    return send_file(index_path)
 
 @app.route('/tab1_homogenizar', methods=['POST'])
 def tab1_homogenizar():
@@ -1182,4 +1186,3 @@ def tab4_procesar():
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=7000, debug=True)
-
